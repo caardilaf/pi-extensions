@@ -12,15 +12,15 @@ See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and imp
 
 #### Commands
 
-- `/spec-init [--plan]` initialize SpecForge context and tracking, optionally planning-only.
+- `/spec-init [--plan]` initialize SpecForge artifacts if missing; if already initialized, report that the project is already initialized. `--plan` creates planning-mode context for new workspaces.
 - `/spec-refresh` refresh project context without changing planning-only workspaces to codebase mode.
 - `/spec-new <spec-name>` create a raw feature idea with a generated id.
-- `/spec-refine [generated-feature-id]` turn a raw idea into a one-feature refined spec; omit the id in the TUI to select from raw specs.
-- `/spec-review [generated-feature-id]` score readiness and add review gaps to `Missing Before Implementation`; omit the id to select from refined specs.
+- `/spec-refine [generated-feature-id]` turn a raw idea into a one-feature refined spec with titled tasks; omit the id in the TUI to select from raw specs. Readiness stays unscored until review.
+- `/spec-review [generated-feature-id]` certify/populate readiness and add review gaps to `Missing Before Implementation`; omit the id to select from refined specs.
 - `/spec-fix [generated-feature-id]` apply review gaps before running review again; omit the id to select from refined specs.
 - `/spec-promote [generated-feature-id]` approve a ready refined spec into archived specs; omit the id to select from refined specs.
 - `/spec-prioritize` recommend implementation order for approved specs.
-- `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]` export an archived spec to Azure DevOps as a User Story with child Tasks; requires `az login`, a valid parent Feature id, and no duplicate User Story under that Feature.
+- `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]` export an archived spec to Azure DevOps as a User Story with child Tasks using spec task titles as Azure Task titles; requires `az login` and a valid parent Feature id.
 - `/spec-start [generated-feature-id]` start implementation from an approved spec; omit the id to select from ready archived specs.
 - `/spec-complete [generated-feature-id]` mark an implemented spec as complete; omit the id to select from in-progress archived specs.
 - `/spec-status` show archived spec progress and recommended next work.

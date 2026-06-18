@@ -41,11 +41,10 @@ Numeric business value score (1-10):
 
 ## Tasks
 
-### Task 1
+### Task 1: Short task title
 
 - Priority (1-4):
-- Effort (story points):
-- Business Value (1-10):
+- Estimated Work:
 - Description:
 
 ## Acceptance Criteria
@@ -60,23 +59,14 @@ Numeric business value score (1-10):
 
 | Criterion | Score |
 | --- | ---: |
-| Problem Defined | 0/1 |
-| Scope Defined | 0/1 |
-| Out of Scope Defined | 0/1 |
-| Functional Requirements Defined | 0/2 |
-| Acceptance Criteria Defined | 0/2 |
-| Tasks Defined with Numeric Priority/Effort/Business Value | 0/1 |
-| Dependencies Defined | 0/1 |
-| Technical Direction Defined | 0/1 |
-
-### Total Score
-
-0/10
-
-### Missing Before Implementation
-
-- Missing item 1
-- Missing item 2
+| Problem Defined | Not reviewed |
+| Scope Defined | Not reviewed |
+| Out of Scope Defined | Not reviewed |
+| Functional Requirements Defined | Not reviewed |
+| Acceptance Criteria Defined | Not reviewed |
+| Tasks Defined with Titles and Numeric Priority/Estimated Work/Description | Not reviewed |
+| Dependencies Defined | Not reviewed |
+| Technical Direction Defined | Not reviewed |
 `;
 
 type Stage = "EARLY" | "MEDIUM" | "ADVANCED";
@@ -151,16 +141,25 @@ type ParsedSpecTask = {
   body: string;
   description: string;
   priority?: number;
-  effort?: number;
+  estimatedWork?: number;
 };
 
 type AzureWorkItemCreateOptions = {
-  type: "User Story" | "Task";
+  type: string;
   title: string;
   description?: string;
   areaPath?: string;
   fields?: Record<string, string | number | undefined>;
 };
+
+type AzureWorkItemExportResult = {
+  id: number;
+  type: string;
+  created: boolean;
+};
+
+const AZURE_STORY_WORK_ITEM_TYPES = ["User Story", "Product Backlog Item", "Requirement", "Issue"];
+const AZURE_TASK_WORK_ITEM_TYPES = ["Task"];
 
 export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("spec-forge", (message, _options, theme) => {
@@ -169,48 +168,20 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("spec-init", {
-    description: "Initialize SpecForge and create PROJECT_CONTEXT.md insights",
+    description: "Initialize SpecForge artifacts",
     handler: async (args, ctx) => {
       const mode = parseInitMode(args);
       if (!mode) return showUsage(ctx, "/spec-init [--plan]");
 
       const paths = getSpecPaths(ctx.cwd);
-      const contextExisted = await exists(paths.context);
-      const result = await initializeSpecForge(ctx, { mode });
-      const maturity = await resolveProjectMaturity(ctx, paths.context);
-      if (await updateProjectMaturity(paths.context, maturity)) {
-        result.push(`Set project maturity to ${maturity}`);
-      }
-
-      if (mode === "planning") {
-        if (contextExisted) {
-          const content = await readFile(paths.context, "utf8").catch(() => "");
-          if (!isPlanningContext(content)) {
-            const updated = await confirmContextAppend(ctx, "Mark existing PROJECT_CONTEXT.md as a planning session?");
-            if (updated) {
-              await markPlanningContext(paths.context);
-              result.push(`Marked ${paths.context} as a planning session`);
-            } else {
-              result.push(`Kept existing ${paths.context} unchanged`);
-            }
-          }
-        }
-        showReport(pi, ctx, "Initialized or repaired SpecForge planning structure", result.join("\n"));
+      const missingArtifacts = await getMissingSpecForgeArtifacts(paths);
+      if (missingArtifacts.length === 0) {
+        showReport(pi, ctx, "SpecForge project already initialized", `All SpecForge artifacts already exist.\nUse /spec-refresh to update ${paths.context}.`);
         return;
       }
 
-      showReport(pi, ctx, "Initialized or repaired SpecForge", result.join("\n"));
-
-      if (contextExisted) {
-        const shouldAppend = await confirmContextAppend(ctx, "PROJECT_CONTEXT.md already exists. Append a timestamped project review?");
-        if (!shouldAppend) return;
-      }
-
-      const scan = await scanProjectForContext(ctx.cwd);
-      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, contextExisted ? "append" : "created", {
-        maturity,
-        sessionType: "codebase",
-      }));
+      const result = await initializeSpecForge(ctx, { mode });
+      showReport(pi, ctx, mode === "planning" ? "Initialized SpecForge planning structure" : "Initialized SpecForge", result.join("\n"));
     },
   });
 
@@ -292,8 +263,9 @@ Rules:
 - Avoid over-engineering and right-size the solution to the project maturity.
 - Define feature-level numeric Priority (1-4), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
 - Include at least one implementation task.
-- For every task, include numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
+- For every task, use the heading format \`### Task N: Short task title\` and include numeric Priority (1-4), numeric Estimated Work, and Description.
 - Remove unused task placeholders; add more task sections only when needed.
+- Do not evaluate or certify Implementation Readiness during /spec-refine. Include only the unrated Score Breakdown scaffold from the template; /spec-review is responsible for scoring, total score, and Missing Before Implementation.
 - Use this exact feature specification structure:
 
 ${SPEC_TEMPLATE}
@@ -346,7 +318,7 @@ Checks:
 - Missing requirements.
 - Feature-level numeric Priority (1-4), Effort (story points), and Business Value (1-10).
 - At least one implementation task exists.
-- Every task has numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
+- Every task has a heading title in the format \`### Task N: Short task title\`, numeric Priority (1-4), numeric Estimated Work, and Description.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
@@ -361,12 +333,12 @@ Readiness rubric:
 - Out of Scope Defined: 1
 - Functional Requirements Defined: 2
 - Acceptance Criteria Defined: 2
-- Tasks Defined with Numeric Priority/Effort/Business Value: 1
+- Tasks Defined with Titles and Numeric Priority/Estimated Work/Description: 1
 - Dependencies Defined: 1
 - Technical Direction Defined: 1
 - Total: 10
 
-Promotion requires readiness_score >= 8 and no blocking open questions.
+Promotion requires readiness score >= 8 and no blocking open questions.
 
 Project context:
 
@@ -390,7 +362,7 @@ Current refined specification:
 
 ${refinedSpec}
 
-Before scoring, inspect additional relevant repository files if needed so the audit uses fresh context. Do not rewrite, expand, or correct the refined story/specification sections. Only update the Implementation Readiness section, and put review comments/actionable required changes under ### Missing Before Implementation. Do not add review notes anywhere else. Do not promote the spec.`);
+Before scoring, inspect additional relevant repository files if needed so the audit uses fresh context. Do not rewrite, expand, or correct the refined story/specification sections. Only update the Implementation Readiness section: populate/certify the Score Breakdown, add ### Total Score, and put review comments/actionable required changes under ### Missing Before Implementation. Do not add review notes anywhere else. Do not promote the spec.`);
     },
   });
 
@@ -438,9 +410,9 @@ ${SPEC_TEMPLATE}
 - Implement every actionable comment listed under ### Missing Before Implementation by updating the relevant refined specification sections.
 - Ensure feature-level Priority (1-4), Effort (story points), and Business Value (1-10) are numeric.
 - Ensure at least one implementation task exists.
-- Ensure every task has numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
+- Ensure every task has a heading title in the format \`### Task N: Short task title\`, numeric Priority (1-4), numeric Estimated Work, and Description.
 - Strengthen acceptance criteria so implementation can be verified.
-- After implementing the Missing Before Implementation comments, replace that list with "- None" so the next /spec-review can audit the updated spec from a clean state.
+- Do not calculate or certify readiness scores during /spec-fix. After implementing the Missing Before Implementation comments, either replace that list with "- None" or reset Implementation Readiness to the unreviewed Score Breakdown scaffold so the next /spec-review can audit the updated spec from a clean state.
 - Do not run /spec-review yourself, promote, or move the spec. After fixing, the user should run /spec-review ${id} again.
 
 Project context:
@@ -629,6 +601,7 @@ Read the archived specification and implement it. Keep the implementation constr
       if (!spec) return;
 
       const storyTitle = buildAzureStoryTitle(spec);
+      const tasks = parseSpecTasks(spec.content);
       const parent = await readAzureWorkItem(parsed.parentId).catch(async (error: unknown) => {
         await fail(ctx, `Azure parent Feature not found or Azure DevOps CLI is not configured for this project.\nParent id: ${parsed.parentId}\n\n${formatAzureError(error)}`);
         return undefined;
@@ -641,37 +614,34 @@ Read the archived specification and implement it. Keep the implementation constr
       }
       const parentAreaPath = getAzureField(parent, "System.AreaPath");
 
-      const duplicateIds = await findAzureDuplicateUserStories(parsed.parentId, storyTitle).catch(async (error: unknown) => {
-        await fail(ctx, `Could not verify duplicate User Stories under Feature ${parsed.parentId}. Export cancelled to avoid duplicates.\n\n${formatAzureError(error)}`);
-        return undefined;
-      });
-      if (!duplicateIds) return;
-      if (duplicateIds.length > 0) {
-        return fail(ctx, `Azure export cancelled: Feature ${parsed.parentId} already has a User Story named "${storyTitle}". Existing id(s): ${duplicateIds.join(", ")}`);
-      }
-
       if (ctx.hasUI) {
-        const ok = await ctx.ui.confirm("SpecForge Azure Export", `Create User Story "${storyTitle}" under Feature ${parsed.parentId} and export ${parseSpecTasks(spec.content).length} task(s)?`);
+        const ok = await ctx.ui.confirm("SpecForge Azure Export", `Create or reuse a story work item "${storyTitle}" under Feature ${parsed.parentId} and create or reuse ${tasks.length} task item(s)?`);
         if (!ok) return;
       }
 
       try {
-        const story = await createAzureWorkItem(buildAzureStoryCreateOptions(spec, storyTitle, parentAreaPath));
-        const storyId = getAzureWorkItemId(story);
-        if (!storyId) throw new Error("Azure CLI did not return a User Story id.");
+        const storyResult = await ensureAzureChildWorkItem({
+          parentId: parsed.parentId,
+          typeCandidates: AZURE_STORY_WORK_ITEM_TYPES,
+          title: storyTitle,
+          create: (type) => createAzureWorkItem(buildAzureStoryCreateOptions(spec, storyTitle, parentAreaPath, type)),
+        });
 
-        await linkAzureParent(String(storyId), parsed.parentId);
-
-        const taskIds: number[] = [];
-        for (const task of parseSpecTasks(spec.content)) {
-          const taskItem = await createAzureWorkItem(buildAzureTaskCreateOptions(task, parentAreaPath));
-          const taskId = getAzureWorkItemId(taskItem);
-          if (!taskId) throw new Error(`Azure CLI did not return a Task id for ${task.heading}.`);
-          await linkAzureParent(String(taskId), String(storyId));
-          taskIds.push(taskId);
+        const taskResults: AzureWorkItemExportResult[] = [];
+        for (const task of tasks) {
+          const taskResult = await ensureAzureChildWorkItem({
+            parentId: String(storyResult.id),
+            typeCandidates: AZURE_TASK_WORK_ITEM_TYPES,
+            title: task.title,
+            create: (type) => createAzureWorkItem(buildAzureTaskCreateOptions(task, parentAreaPath, type)),
+          });
+          taskResults.push(taskResult);
         }
 
-        showReport(pi, ctx, "Exported specification to Azure DevOps", `Feature parent: ${parsed.parentId}\nArea: ${parentAreaPath || "not set"}\nUser Story: ${storyId} - ${storyTitle}\nTasks created: ${taskIds.length}${taskIds.length > 0 ? `\nTask ids: ${taskIds.join(", ")}` : ""}`);
+        const createdTaskIds = taskResults.filter((item) => item.created).map((item) => item.id);
+        const reusedTaskIds = taskResults.filter((item) => !item.created).map((item) => item.id);
+        const taskType = taskResults[0]?.type || AZURE_TASK_WORK_ITEM_TYPES[0];
+        showReport(pi, ctx, "Exported specification to Azure DevOps", `Feature parent: ${parsed.parentId}\nArea: ${parentAreaPath || "not set"}\n${storyResult.type}: ${storyResult.id} - ${storyTitle} (${storyResult.created ? "created" : "reused"})\n${taskType}s created: ${createdTaskIds.length}${createdTaskIds.length > 0 ? `\nCreated task ids: ${createdTaskIds.join(", ")}` : ""}\n${taskType}s reused: ${reusedTaskIds.length}${reusedTaskIds.length > 0 ? `\nReused task ids: ${reusedTaskIds.join(", ")}` : ""}`);
       } catch (error) {
         await fail(ctx, `Azure export failed. Some Azure work items may have been created before the failure.\n\n${formatAzureError(error)}`);
       }
@@ -691,6 +661,17 @@ function getSpecPaths(root: string): SpecPaths {
     archived: join(specs, "archived_specs"),
     gitignore: join(root, ".gitignore"),
   };
+}
+
+async function getMissingSpecForgeArtifacts(paths: SpecPaths): Promise<string[]> {
+  const artifacts = [paths.specs, paths.raw, paths.refined, paths.archived, paths.context, paths.tracking];
+  const missing: string[] = [];
+
+  for (const artifact of artifacts) {
+    if (!(await exists(artifact))) missing.push(artifact);
+  }
+
+  return missing;
 }
 
 async function initializeSpecForge(ctx: ExtensionCommandContext, options: { mode?: InitMode } = {}): Promise<string[]> {
@@ -721,7 +702,7 @@ async function initializeSpecForge(ctx: ExtensionCommandContext, options: { mode
 }
 
 function buildCodebaseProjectContext(): string {
-  return buildProjectContext("codebase", "This SpecForge workspace is attached to an implementation codebase. Project insights should be filled by /spec-init or /spec-refresh after a read-only review.", ["Avoid Over-Engineering"]);
+  return buildProjectContext("codebase", "This SpecForge workspace is attached to an implementation codebase. Project insights should be filled by /spec-refresh after a read-only review.", ["Avoid Over-Engineering"]);
 }
 
 function buildPlanningProjectContext(): string {
@@ -1006,23 +987,6 @@ async function updateProjectMaturity(contextPath: string, maturity: Stage): Prom
 
 function isPlanningContext(content: string): boolean {
   return /##\s+SESSION_TYPE\s*\n\s*planning\s*$/im.test(content) || /planning session/i.test(content);
-}
-
-async function confirmContextAppend(ctx: ExtensionCommandContext, message: string): Promise<boolean> {
-  if (!ctx.hasUI) {
-    await fail(ctx, `${message}\nRun /spec-refresh to intentionally update PROJECT_CONTEXT.md, or update the file manually.`);
-    return false;
-  }
-  return ctx.ui.confirm("SpecForge", message);
-}
-
-async function markPlanningContext(path: string): Promise<void> {
-  const current = await readFile(path, "utf8").catch(() => "");
-  const withSessionType = /##\s+SESSION_TYPE\s*\n[^\n]*/i.test(current)
-    ? current.replace(/##\s+SESSION_TYPE\s*\n[^\n]*/i, "## SESSION_TYPE\nplanning")
-    : `${current}${current.length > 0 && !current.endsWith("\n") ? "\n" : ""}\n## SESSION_TYPE\nplanning\n`;
-  const prefix = withSessionType.length > 0 && !withSessionType.endsWith("\n") ? "\n" : "";
-  await writeFile(path, `${withSessionType}${prefix}\n## Planning Session Note - ${today()}\n\nThis SpecForge workspace is being used as a planning session. No implementation codebase was reviewed by /spec-init --plan.\n`, "utf8");
 }
 
 async function scanProjectForContext(root: string): Promise<ProjectScanSummary> {
@@ -1368,7 +1332,7 @@ function validatePromotableSpec(content: string): { ok: boolean; score: number; 
   if (businessValueScore === undefined || businessValueScore < 1 || businessValueScore > 10) reasons.push("Business value must be a numeric score from 1 to 10.");
   if (!sectionHasContent(content, "Acceptance Criteria")) reasons.push("Acceptance criteria are missing or empty.");
   if (!sectionHasContent(content, "Tasks")) reasons.push("Tasks are missing or empty.");
-  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include numeric priority (1-4), effort, business value, and description.");
+  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include a task title, numeric priority (1-4), estimated work, and description.");
   if (hasBlockingMissingItems(content)) reasons.push("Missing Before Implementation contains unresolved items.");
   if (content.includes("Missing item 1") || content.includes("Missing item 2")) reasons.push("Template placeholder missing items are still present.");
   return { ok: reasons.length === 0, score, reasons };
@@ -1422,27 +1386,46 @@ function parseBoundedNumber(value: string | undefined, min: number, max: number)
 
 function tasksHaveRequiredFields(content: string): boolean {
   const tasksSection = content.match(/##\s+Tasks\s*\n([\s\S]*?)(?=\n##\s+|$)/i)?.[1] || "";
-  const tasks: string[] = [];
-  const taskPattern = /###\s+[^\n]+\n([\s\S]*?)(?=\n###\s+|$)/gi;
+  const tasks: Array<{ heading: string; body: string }> = [];
+  const taskPattern = /###\s+([^\n]+)\n([\s\S]*?)(?=\n###\s+|$)/gi;
   let match: RegExpExecArray | null;
-  while ((match = taskPattern.exec(tasksSection)) !== null) tasks.push(match[1]);
+  while ((match = taskPattern.exec(tasksSection)) !== null) {
+    tasks.push({ heading: match[1].trim(), body: match[2] });
+  }
   if (tasks.length === 0) return false;
 
   return tasks.every((task) => {
-    const priority = extractTaskFieldNumber(task, "Priority");
-    const effort = extractTaskFieldNumber(task, "Effort");
-    const businessValue = extractTaskFieldNumber(task, "Business Value");
-    return priority !== undefined && priority >= 1 && priority <= 4
-      && effort !== undefined && effort > 0
-      && businessValue !== undefined && businessValue >= 1 && businessValue <= 10
-      && /Description:\s*\S/i.test(task);
+    const priority = extractTaskFieldNumber(task.body, "Priority");
+    const estimatedWork = extractTaskFieldNumber(task.body, "Estimated Work");
+    return taskHeadingHasTitle(task.heading)
+      && priority !== undefined && priority >= 1 && priority <= 4
+      && estimatedWork !== undefined && estimatedWork > 0
+      && extractTaskTextField(task.body, "Description").length > 0;
   });
+}
+
+function taskHeadingHasTitle(heading: string): boolean {
+  const trimmed = heading.trim();
+  const numbered = trimmed.match(/^Task\s+\d+\s*:\s*(.+)$/i);
+  if (numbered) return numbered[1].trim().length > 0;
+  return trimmed.length > 0 && !/^Task\s+\d+$/i.test(trimmed);
 }
 
 function extractTaskFieldNumber(task: string, field: string): number | undefined {
   const pattern = new RegExp(`${escapeRegExp(field)}(?:\\s*\\([^)]*\\))?:\\s*(\\d+(?:\\.\\d+)?)`, "i");
   const value = Number(task.match(pattern)?.[1]);
   return Number.isFinite(value) ? value : undefined;
+}
+
+function extractTaskEstimatedWork(task: string): number | undefined {
+  return extractTaskFieldNumber(task, "Estimated Work") ?? extractTaskFieldNumber(task, "Effort");
+}
+
+function extractTaskTextField(task: string, field: string): string {
+  const labels = ["Priority", "Estimated Work", "Effort", "Business Value", "Description"];
+  const labelPattern = labels.map((label) => `${escapeRegExp(label)}(?:\\s*\\([^)]*\\))?`).join("|");
+  const pattern = new RegExp(`(?:^|\\n)\\s*-?\\s*${escapeRegExp(field)}(?:\\s*\\([^)]*\\))?:\\s*([\\s\\S]*?)(?=\\n\\s*-?\\s*(?:${labelPattern})\\s*:|$)`, "i");
+  return task.match(pattern)?.[1]?.trim() || "";
 }
 
 function hasBlockingMissingItems(content: string): boolean {
@@ -1675,10 +1658,51 @@ async function readAzureWorkItem(id: string): Promise<AzureWorkItem> {
   return runAzJson<AzureWorkItem>(["boards", "work-item", "show", "--id", id, "--output", "json"]);
 }
 
-async function findAzureDuplicateUserStories(parentId: string, title: string): Promise<number[]> {
-  const wiql = `SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'User Story' AND [System.Parent] = ${parentId} AND [System.Title] = '${escapeWiqlString(title)}'`;
+async function findAzureChildWorkItemIds(parentId: string, type: string, title: string): Promise<number[]> {
+  const wiql = `SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = '${escapeWiqlString(type)}' AND [System.Parent] = ${parentId} AND [System.Title] = '${escapeWiqlString(title)}'`;
   const result = await runAzJson<unknown>(["boards", "query", "--wiql", wiql, "--output", "json"]);
   return collectAzureWorkItemIds(result);
+}
+
+async function ensureAzureChildWorkItem(options: { parentId: string; typeCandidates: string[]; title: string; create: (type: string) => Promise<AzureWorkItem> }): Promise<AzureWorkItemExportResult> {
+  const skippedTypes: string[] = [];
+
+  for (const type of options.typeCandidates) {
+    const existingIds = await findAzureChildWorkItemIds(options.parentId, type, options.title).catch((error: unknown) => {
+      if (isAzureWorkItemTypeMissingError(error, type)) {
+        skippedTypes.push(type);
+        return undefined;
+      }
+      throw error;
+    });
+    if (!existingIds) continue;
+
+    if (existingIds.length > 1) {
+      throw new Error(`Multiple ${type} work items named "${options.title}" already exist under parent ${options.parentId}: ${existingIds.join(", ")}`);
+    }
+    if (existingIds.length === 1) return { id: existingIds[0], type, created: false };
+
+    const item = await options.create(type).catch((error: unknown) => {
+      if (isAzureWorkItemTypeMissingError(error, type)) {
+        if (!skippedTypes.includes(type)) skippedTypes.push(type);
+        return undefined;
+      }
+      throw error;
+    });
+    if (!item) continue;
+
+    const id = getAzureWorkItemId(item);
+    if (!id) throw new Error(`Azure CLI did not return an id for ${type} "${options.title}".`);
+    await linkAzureParent(String(id), options.parentId);
+    return { id, type, created: true };
+  }
+
+  throw new Error(`Could not find or create "${options.title}". Tried Azure work item type(s): ${options.typeCandidates.join(", ")}.${skippedTypes.length > 0 ? ` Missing type(s): ${skippedTypes.join(", ")}.` : ""}`);
+}
+
+function isAzureWorkItemTypeMissingError(error: unknown, type: string): boolean {
+  const text = formatAzureError(error).toLowerCase();
+  return text.includes("work item type") && text.includes(type.toLowerCase()) && text.includes("does not exist");
 }
 
 async function createAzureWorkItem(options: AzureWorkItemCreateOptions): Promise<AzureWorkItem> {
@@ -1731,23 +1755,29 @@ function parseSpecTasks(content: string): ParsedSpecTask[] {
   while ((match = taskPattern.exec(tasksSection)) !== null) {
     const heading = match[1].trim();
     const body = match[2].trim();
-    const description = body.match(/Description:\s*(.+)/i)?.[1]?.trim() || heading;
+    const description = extractTaskTextField(body, "Description") || heading;
     tasks.push({
       heading,
-      title: truncateInline(description.replace(/^[-*]\s*/, ""), 120),
+      title: truncateInline(extractTaskTitle(heading, description), 120),
       body,
       description,
       priority: extractTaskFieldNumber(body, "Priority"),
-      effort: extractTaskFieldNumber(body, "Effort"),
+      estimatedWork: extractTaskEstimatedWork(body),
     });
   }
 
   return tasks;
 }
 
-function buildAzureStoryCreateOptions(spec: ArchivedSpec, title: string, areaPath: string | undefined): AzureWorkItemCreateOptions {
+function extractTaskTitle(heading: string, fallback: string): string {
+  const normalizedHeading = heading.replace(/^[-*]\s*/, "").trim();
+  if (taskHeadingHasTitle(normalizedHeading)) return normalizedHeading;
+  return fallback.replace(/^[-*]\s*/, "").trim();
+}
+
+function buildAzureStoryCreateOptions(spec: ArchivedSpec, title: string, areaPath: string | undefined, type: string): AzureWorkItemCreateOptions {
   return {
-    type: "User Story",
+    type,
     title,
     areaPath,
     description: buildAzureStoryDescription(spec),
@@ -1760,15 +1790,15 @@ function buildAzureStoryCreateOptions(spec: ArchivedSpec, title: string, areaPat
   };
 }
 
-function buildAzureTaskCreateOptions(task: ParsedSpecTask, areaPath: string | undefined): AzureWorkItemCreateOptions {
+function buildAzureTaskCreateOptions(task: ParsedSpecTask, areaPath: string | undefined, type: string): AzureWorkItemCreateOptions {
   return {
-    type: "Task",
+    type,
     title: task.title,
     areaPath,
     description: formatAzureTextField(task.description),
     fields: {
       "Microsoft.VSTS.Common.Priority": task.priority,
-      "Microsoft.VSTS.Scheduling.OriginalEstimate": task.effort,
+      "Microsoft.VSTS.Scheduling.OriginalEstimate": task.estimatedWork,
     },
   };
 }

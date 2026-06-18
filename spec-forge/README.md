@@ -102,7 +102,7 @@ Project maturity:
 | `MEDIUM` | Growing project with patterns | Preserve consistency and dependencies |
 | `ADVANCED` | Mature/scale/compliance/complexity | Require stronger validation |
 
-`/spec-init` and `/spec-refresh` ask for maturity and update `## STAGE`.
+`/spec-init` creates missing artifacts only. `/spec-refresh` asks for maturity and updates `## STAGE`.
 
 Planning-only workspaces use `SESSION_TYPE: planning`. `/spec-refresh` must preserve planning mode and must not convert it to `codebase`.
 
@@ -112,12 +112,13 @@ Planning-only workspaces use `SESSION_TYPE: planning`. `/spec-refresh` must pres
 
 ### `/spec-init [--plan]`
 
-Creates or repairs SpecForge structure and tracking.
+Creates missing SpecForge structure and tracking.
 
-- Default mode: initializes for a codebase, asks for maturity, performs a bounded read-only project review, and updates `PROJECT_CONTEXT.md`.
-- `--plan`: initializes planning-only mode, asks for maturity, skips codebase scanning and implementation-stack assumptions.
-- Existing files are not overwritten.
-- Existing `PROJECT_CONTEXT.md` is appended to only after confirmation.
+- If all SpecForge artifacts already exist, reports that the project is already initialized and stops.
+- Default mode: creates codebase-mode `PROJECT_CONTEXT.md` only for a new/missing context file.
+- `--plan`: creates planning-mode `PROJECT_CONTEXT.md` only for a new/missing context file.
+- Existing files are not overwritten or refreshed.
+- Use `/spec-refresh` to update project context, maturity, or repository insights.
 
 ### `/spec-refresh`
 
@@ -149,9 +150,10 @@ The agent should:
 - act as a technical product owner;
 - enforce one feature per spec;
 - ask targeted clarification questions based on maturity;
-- define numeric Priority (1-4), Effort, and Business Value;
-- create actionable tasks;
+- define feature-level numeric Priority (1-4), Effort, and Business Value;
+- create actionable tasks with headings like `### Task 1: Short task title` and task-level Priority, numeric Estimated Work, and Description;
 - use the feature spec template;
+- leave Implementation Readiness unscored except for the Score Breakdown scaffold; `/spec-review` certifies and populates readiness;
 - update tracking to `🔧 Refined`.
 
 Question budget:
@@ -168,9 +170,9 @@ Reviews a refined spec for implementation readiness. In the TUI, omit the id to 
 
 Important rule:
 
-> `/spec-review` **must not rewrite or fix the refined story/spec content**. It only updates the `Implementation Readiness` section and puts comments/actionable gaps under `### Missing Before Implementation`.
+> `/spec-review` **must not rewrite or fix the refined story/spec content**. It only updates the `Implementation Readiness` section: it certifies/populates the Score Breakdown, adds `### Total Score`, and puts comments/actionable gaps under `### Missing Before Implementation`.
 
-Checks include scope, requirements, numeric planning fields, tasks, acceptance criteria, security/data/scalability concerns, dependencies, blockers, over-engineering, and one-feature scope.
+Checks include scope, requirements, numeric planning fields, titled tasks, acceptance criteria, security/data/scalability concerns, dependencies, blockers, over-engineering, and one-feature scope.
 
 Promotion requires readiness score `>= 8/10` and no blocking open questions.
 
@@ -183,8 +185,9 @@ The agent should:
 - implement every actionable item in `Missing Before Implementation`;
 - update the relevant refined spec sections;
 - preserve one-feature scope;
-- ensure numeric Priority (1-4), Effort, Business Value, tasks, and acceptance criteria are complete;
-- replace resolved missing items with `- None`;
+- ensure feature-level numeric Priority (1-4), Effort, Business Value, titled tasks with Priority/numeric Estimated Work/Description, and acceptance criteria are complete;
+- not calculate or certify readiness scores;
+- replace resolved missing items with `- None` or reset readiness to the unreviewed Score Breakdown scaffold;
 - not promote, move, or run review automatically.
 
 After fixing, run `/spec-review <id>` again.
@@ -200,7 +203,7 @@ Promotion is denied unless:
 - numeric Priority (1-4), Effort, and Business Value are present;
 - acceptance criteria exist;
 - at least one task exists;
-- every task has numeric Priority (1-4), Effort, Business Value, and Description;
+- every task has a heading title (for example `### Task 1: Create the API`), numeric Priority (1-4), numeric Estimated Work, and Description;
 - the spec represents exactly one feature.
 
 Updates tracking to `✅ Approved`.
@@ -219,15 +222,18 @@ Exports one archived specification to Azure DevOps as a User Story, then creates
 - The Feature parent must exist and must be a `Feature` work item.
 - If the spec argument is omitted in the TUI, SpecForge lists selectable specs from `specs/archived_specs/`.
 - The spec argument may be a generated id or a unique search term from the archived spec title/id.
-- Export is cancelled if the same Feature already has a User Story with the same title.
-- The new User Story inherits the parent Feature's Area path.
+- Existing child User Stories/Tasks with matching titles are reused; otherwise new work items are created.
+- New User Stories and Tasks inherit the parent Feature's Area path; reused items keep their existing Area.
 - User Story field mapping:
   - Description: spec summary sections such as problem, user story, scope, requirements, dependencies, risks, and future improvements.
   - Acceptance Criteria: spec `Acceptance Criteria` section.
   - Details: Priority, Effort, and Business Value.
 - Task field mapping:
+  - Title: task heading title, for example `Task 1: Create the API`.
   - Description: task `Description`.
-  - Details: Priority and Estimated Work.
+  - Priority: task `Priority`.
+  - Estimated Work: task `Estimated Work`.
+  - Task export intentionally does not use task Effort or Business Value; those planning fields apply to the User Story/spec level only.
   - Area: parent Feature's Area path.
 
 Example:
@@ -286,11 +292,10 @@ Numeric business value score (1-10):
 
 ## Tasks
 
-### Task 1
+### Task 1: Short task title
 
 - Priority (1-4):
-- Effort (story points):
-- Business Value (1-10):
+- Estimated Work:
 - Description:
 
 ## Acceptance Criteria
@@ -305,25 +310,19 @@ Numeric business value score (1-10):
 
 | Criterion | Score |
 | --- | ---: |
-| Problem Defined | 0/1 |
-| Scope Defined | 0/1 |
-| Out of Scope Defined | 0/1 |
-| Functional Requirements Defined | 0/2 |
-| Acceptance Criteria Defined | 0/2 |
-| Tasks Defined with Numeric Priority/Effort/Business Value | 0/1 |
-| Dependencies Defined | 0/1 |
-| Technical Direction Defined | 0/1 |
+| Problem Defined | Not reviewed |
+| Scope Defined | Not reviewed |
+| Out of Scope Defined | Not reviewed |
+| Functional Requirements Defined | Not reviewed |
+| Acceptance Criteria Defined | Not reviewed |
+| Tasks Defined with Titles and Numeric Priority/Estimated Work/Description | Not reviewed |
+| Dependencies Defined | Not reviewed |
+| Technical Direction Defined | Not reviewed |
 
-### Total Score
-
-0/10
-
-### Missing Before Implementation
-
-- Missing item 1
+<!-- /spec-review certifies readiness by replacing the unrated breakdown with scores, adding ### Total Score, and adding ### Missing Before Implementation. -->
 ```
 
-Readiness levels:
+Readiness levels after `/spec-review`:
 
 | Score | Level | Result |
 | ---: | --- | --- |
@@ -366,8 +365,9 @@ Numeric planning fields:
 | Field | Scale | Meaning |
 | --- | --- | --- |
 | `priority` / Priority | `1–4` | Urgency/order signal; `4` highest |
-| Effort | story points such as `1,2,3,5,8,13` | Relative size/complexity |
-| Business Value | `1–10` | Expected impact; `10` highest |
+| Effort | story points such as `1,2,3,5,8,13` | Relative feature/User Story size or complexity |
+| Business Value | `1–10` | Feature/User Story impact; `10` highest |
+| Task Estimated Work | numeric estimate | Azure Task estimated work value; task items do not use Effort or Business Value |
 
 ---
 
