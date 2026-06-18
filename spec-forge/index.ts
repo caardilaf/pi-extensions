@@ -276,7 +276,7 @@ When ready, write the refined specification to ${refinedPath}.`);
       pi.sendUserMessage(`You are running SpecForge /spec-review for feature id: ${id}.
 
 Role:
-Act like a senior software engineer auditor. Review with fresh repository context, not only the existing PROJECT_CONTEXT.md. Calibrate strictness and technical depth to project stage: ${stage}.
+Act like a senior software engineer auditor. Review with fresh repository context, not only the existing PROJECT_CONTEXT.md. Use fresh context for the audit only; do not refresh PROJECT_CONTEXT.md during /spec-review. Calibrate strictness and technical depth to project stage: ${stage}.
 
 Review this refined specification and update the file in place:
 ${refinedPath}
@@ -1097,10 +1097,11 @@ function sectionHasContent(content: string, heading: string): boolean {
 }
 
 function tasksHaveRequiredFields(content: string): boolean {
+  const tasksSection = content.match(/##\s+Tasks\s*\n([\s\S]*?)(?=\n##\s+|$)/i)?.[1] || "";
   const tasks: string[] = [];
-  const taskPattern = /###\s+Task[^\n]*\n([\s\S]*?)(?=\n###\s+Task|\n##\s+|$)/gi;
+  const taskPattern = /###\s+[^\n]+\n([\s\S]*?)(?=\n###\s+|$)/gi;
   let match: RegExpExecArray | null;
-  while ((match = taskPattern.exec(content)) !== null) tasks.push(match[1]);
+  while ((match = taskPattern.exec(tasksSection)) !== null) tasks.push(match[1]);
   if (tasks.length === 0) return false;
 
   return tasks.every((task) => {

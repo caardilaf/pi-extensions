@@ -2,7 +2,7 @@
 
 > From idea to implementation-ready feature specifications.
 
-SpecForge is a proposed **pi extension** that adds a specification-first workflow to a project. It helps engineers turn raw feature ideas into small, reviewed, implementation-ready specifications that can be handed to a coding agent.
+SpecForge is a **pi extension** that adds a specification-first workflow to a project. It helps engineers turn raw feature ideas into small, reviewed, implementation-ready specifications that can be handed to a coding agent.
 
 SpecForge is designed for two audiences:
 
@@ -32,14 +32,16 @@ Its purpose is to:
 
 A specification must represent one deliverable feature.
 
-Good examples:
+Good one-feature names:
 
 - `semantic-search`
 - `oauth-authentication`
 - `pdf-upload`
 - `anomaly-detection-endpoint`
 
-Bad examples:
+`/spec-new` turns those names into generated ids such as `a1b2c3-semantic-search`.
+
+Bad multi-feature ideas:
 
 - `Build AI Platform`
 - `Build Customer Support System`
@@ -474,7 +476,7 @@ Responsibilities:
 - Detect over-engineering.
 - Suggest simpler alternatives.
 - Produce a refined specification using the feature specification template.
-- Update `specs/SPEC_TRACKING.md` to `🔧 Refined`.
+- Mark `specs/SPEC_TRACKING.md` as `🔧 Refined` when refinement starts.
 
 ### Question Budget
 
@@ -508,6 +510,7 @@ Role:
 
 - Act like a senior software engineer auditor.
 - Review with fresh repository context, not only the existing `PROJECT_CONTEXT.md`.
+- Use fresh context for the audit only; do not refresh `PROJECT_CONTEXT.md` during `/spec-review`.
 - Calibrate strictness and technical depth to the current project stage.
 
 Checks:
@@ -516,7 +519,7 @@ Checks:
 - Missing requirements.
 - Feature-level Priority, Effort, and Business Value.
 - At least one implementation task exists.
-- Every task has Priority, Estimated work, and Description.
+- Every task has Priority, Estimated work, and Description, regardless of the task heading text.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
@@ -597,7 +600,7 @@ Promotion is allowed only when:
 - Acceptance criteria are defined.
 - At least one task exists.
 - Tasks are scoped and actionable.
-- Every task includes Priority, Estimated work, and Description.
+- Every task includes Priority, Estimated work, and Description, regardless of the task heading text.
 - The specification represents exactly one feature.
 
 ---
@@ -803,12 +806,12 @@ Every archived specification must contain YAML front matter.
 
 ```yaml
 ---
-id: semantic-search
+id: a1b2c3-semantic-search
 status: ready
 priority: high
 readiness_score: 9
 depends_on:
-  - oauth-authentication
+  - d4e5f6-oauth-authentication
 created_at: 2026-06-16
 started_at:
 completed_at:
@@ -914,7 +917,7 @@ The extension should:
 - Use `pi.sendUserMessage()` when a command needs the agent to perform reasoning or generate a refined document.
 - Avoid long-lived background resources.
 - Avoid overwriting user content without confirmation.
-- Keep archived specifications as the only durable source of truth.
+- Keep archived specifications as the durable source of truth for implementation progress.
 
 ### Command Registration Sketch
 

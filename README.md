@@ -8,7 +8,7 @@ Useful pi extensions that fit my workflow and hopefully support yours. 🫡
 
 `spec-forge/` contains a pi extension for a specification-first feature workflow.
 
-SpecForge helps turn raw feature ideas into reviewed, implementation-ready specifications before handing work to a coding agent. `/spec-new` prefixes a unique short id to each spec name, and `/spec-init` prepares SpecForge context plus a `SPEC_TRACKING.md` dashboard from a read-only project review. `/spec-init --plan` supports planning-only sessions; neither mode scaffolds a UV or application project.
+SpecForge helps turn raw feature ideas into reviewed, implementation-ready specifications before handing work to a coding agent. `/spec-new` prefixes a unique short id to each spec name, and `/spec-init` prepares SpecForge context plus a `SPEC_TRACKING.md` dashboard from a read-only project review. `/spec-init --plan` supports planning-only sessions; neither mode scaffolds a UV or application project, and all SpecForge files may be tracked with git.
 
 See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and implementation guide.
 
