@@ -1,9 +1,11 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { randomBytes } from "node:crypto";
 import { access, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const RAW_TEMPLATE = `# Feature Idea
+function buildRawTemplate(title: string): string {
+  return `# ${title}
 
 ## Problem
 
@@ -11,8 +13,15 @@ const RAW_TEMPLATE = `# Feature Idea
 
 ## Notes
 `;
+}
 
 const SPEC_TEMPLATE = `## Problem Statement
+
+## Priority
+
+## Effort
+
+## Business Value
 
 ## Scope
 
@@ -30,9 +39,9 @@ const SPEC_TEMPLATE = `## Problem Statement
 
 ### Task 1
 
-### Task 2
-
-### Task 3
+- Priority:
+- Estimated work:
+- Description:
 
 ## Acceptance Criteria
 
@@ -51,7 +60,7 @@ const SPEC_TEMPLATE = `## Problem Statement
 | Out of Scope Defined | 0/1 |
 | Functional Requirements Defined | 0/2 |
 | Acceptance Criteria Defined | 0/2 |
-| Tasks Defined | 0/1 |
+| Tasks Defined with Priority/Estimated Work | 0/1 |
 | Dependencies Defined | 0/1 |
 | Technical Direction Defined | 0/1 |
 
@@ -73,6 +82,7 @@ type SpecPaths = {
   root: string;
   specs: string;
   context: string;
+  tracking: string;
   raw: string;
   refined: string;
   archived: string;
@@ -99,6 +109,15 @@ type ArchivedSpec = {
 
 type InitMode = "codebase" | "planning";
 type ContextUpdateMode = "created" | "append" | "refresh";
+type TrackingStatus = "raw" | "refined" | "approved" | "completed";
+
+type TrackingEntry = {
+  id: string;
+  title: string;
+  description: string;
+  status: TrackingStatus;
+  updated: string;
+};
 
 type ProjectScanSummary = {
   topLevelEntries: string[];
@@ -166,20 +185,18 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("spec-new", {
     description: "Create a raw SpecForge feature idea",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-new <feature-id>");
-      if (!isKebabCase(id)) return fail(ctx, `Invalid feature id: ${id}\nUse kebab-case, for example: semantic-search`);
+      const name = parseSpecName(args);
+      if (!name) return showUsage(ctx, "/spec-new <spec-name>");
 
       const paths = getSpecPaths(ctx.cwd);
       await initializeSpecForge(ctx);
-      const conflicts = await findSpecConflicts(paths, id);
-      if (conflicts.length > 0) {
-        return fail(ctx, `Cannot create ${id}; a spec already exists:\n${conflicts.join("\n")}`);
-      }
 
+      const id = await createUniqueSpecId(paths, name);
       const file = join(paths.raw, `${id}.md`);
-      await writeFile(file, RAW_TEMPLATE, "utf8");
-      showReport(pi, ctx, "Created raw feature specification", `${file}\n\nNext: /spec-refine ${id}`);
+      const rawSpec = buildRawTemplate(formatSpecTitleFromName(name));
+      await writeFile(file, rawSpec, "utf8");
+      await updateSpecTracking(ctx.cwd, id, "raw", rawSpec);
+      showReport(pi, ctx, "Created raw feature specification", `${file}\n\nFeature ID: ${id}\nNext: /spec-refine ${id}`);
     },
   });
 
@@ -187,7 +204,7 @@ export default function (pi: ExtensionAPI) {
     description: "Refine a raw feature idea into an implementation-ready specification",
     handler: async (args, ctx) => {
       const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-refine <feature-id>");
+      if (!id) return showUsage(ctx, "/spec-refine <generated-feature-id>");
       await initializeSpecForge(ctx);
 
       const paths = getSpecPaths(ctx.cwd);
@@ -203,6 +220,7 @@ export default function (pi: ExtensionAPI) {
       ]);
       const stage = detectStageFromContext(projectContext);
       const questionBudget = stage === "ADVANCED" ? 12 : stage === "MEDIUM" ? 8 : 5;
+      await updateSpecTracking(ctx.cwd, id, "refined", rawSpec);
 
       pi.sendUserMessage(`You are running SpecForge /spec-refine for feature id: ${id}.
 
@@ -211,11 +229,16 @@ Create or update this refined specification file:
 ${refinedPath}
 
 Rules:
+- Act like a technical product owner: clarify product intent, implementation value, prioritization, scope, and delivery slices.
 - Follow ONE SPEC = ONE FEATURE.
 - If the raw idea contains multiple features, stop and recommend splitting it instead of writing a multi-feature spec.
 - Project stage is ${stage}; ask at most ${questionBudget} targeted clarification questions.
 - If the information is already sufficient, ask fewer questions or no questions.
 - Avoid over-engineering and right-size the solution to the project maturity.
+- Define feature-level Priority, Effort, and Business Value.
+- Include at least one implementation task.
+- For every task, include Priority, Estimated work, and Description.
+- Remove unused task placeholders; add more task sections only when needed.
 - Use this exact feature specification structure:
 
 ${SPEC_TEMPLATE}
@@ -236,19 +259,24 @@ When ready, write the refined specification to ${refinedPath}.`);
     description: "Review a refined specification for implementation readiness",
     handler: async (args, ctx) => {
       const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-review <feature-id>");
+      if (!id) return showUsage(ctx, "/spec-review <generated-feature-id>");
       await initializeSpecForge(ctx);
 
       const paths = getSpecPaths(ctx.cwd);
       const refinedPath = join(paths.refined, `${id}.md`);
       if (!(await exists(refinedPath))) return fail(ctx, `Refined spec not found: ${refinedPath}`);
 
-      const [refinedSpec, projectContext] = await Promise.all([
+      const [refinedSpec, projectContext, freshContext] = await Promise.all([
         readFile(refinedPath, "utf8"),
         readFile(paths.context, "utf8").catch(() => ""),
+        scanProjectForContext(ctx.cwd),
       ]);
+      const stage = detectStageFromContext(projectContext);
 
       pi.sendUserMessage(`You are running SpecForge /spec-review for feature id: ${id}.
+
+Role:
+Act like a senior software engineer auditor. Review with fresh repository context, not only the existing PROJECT_CONTEXT.md. Calibrate strictness and technical depth to project stage: ${stage}.
 
 Review this refined specification and update the file in place:
 ${refinedPath}
@@ -256,10 +284,13 @@ ${refinedPath}
 Checks:
 - Scope clarity.
 - Missing requirements.
+- Feature-level Priority, Effort, and Business Value.
+- At least one implementation task exists.
+- Every task has Priority, Estimated work, and Description.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
-- Scalability assumptions.
+- Scalability assumptions appropriate for project stage ${stage}.
 - Dependencies and blockers.
 - Over-engineering risks.
 - Whether the spec still represents exactly one feature.
@@ -270,7 +301,7 @@ Readiness rubric:
 - Out of Scope Defined: 1
 - Functional Requirements Defined: 2
 - Acceptance Criteria Defined: 2
-- Tasks Defined: 1
+- Tasks Defined with Priority/Estimated Work: 1
 - Dependencies Defined: 1
 - Technical Direction Defined: 1
 - Total: 10
@@ -281,11 +312,25 @@ Project context:
 
 ${projectContext || "(No PROJECT_CONTEXT.md content available.)"}
 
+Fresh repository context gathered for this review:
+
+Top-level entries:
+${formatBullets(freshContext.topLevelEntries)}
+
+Notable project files:
+${formatBullets(freshContext.notableFiles)}
+
+Sample file inventory (limited):
+${formatBullets(freshContext.files)}
+
+Selected file snippets:
+${formatSnippets(freshContext.snippets)}
+
 Current refined specification:
 
 ${refinedSpec}
 
-Update the Implementation Readiness section with score breakdown, total score, and missing items. Do not promote the spec.`);
+Before scoring, inspect additional relevant repository files if needed so the audit uses fresh context. Update the Implementation Readiness section with score breakdown, total score, and missing items. Do not promote the spec.`);
     },
   });
 
@@ -293,7 +338,7 @@ Update the Implementation Readiness section with score breakdown, total score, a
     description: "Promote a reviewed specification into archived_specs",
     handler: async (args, ctx) => {
       const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-promote <feature-id>");
+      if (!id) return showUsage(ctx, "/spec-promote <generated-feature-id>");
       await initializeSpecForge(ctx);
 
       const paths = getSpecPaths(ctx.cwd);
@@ -324,6 +369,7 @@ Update the Implementation Readiness section with score breakdown, total score, a
 
       await writeFile(refinedPath, `${metadata}\n${split.body.trimStart()}`, "utf8");
       await rename(refinedPath, archivedPath);
+      await updateSpecTracking(ctx.cwd, id, "approved", content);
       showReport(pi, ctx, "Promoted specification", `${archivedPath}\n\nNext: /spec-start ${id}`);
     },
   });
@@ -342,7 +388,7 @@ Update the Implementation Readiness section with score breakdown, total score, a
     description: "Begin implementation of a promoted feature",
     handler: async (args, ctx) => {
       const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-start <feature-id>");
+      if (!id) return showUsage(ctx, "/spec-start <generated-feature-id>");
       await initializeSpecForge(ctx);
 
       const paths = getSpecPaths(ctx.cwd);
@@ -384,7 +430,7 @@ Read the archived specification and implement it. Keep the implementation constr
     description: "Mark an archived specification as completed",
     handler: async (args, ctx) => {
       const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-complete <feature-id>");
+      if (!id) return showUsage(ctx, "/spec-complete <generated-feature-id>");
       await initializeSpecForge(ctx);
 
       const paths = getSpecPaths(ctx.cwd);
@@ -402,6 +448,7 @@ Read the archived specification and implement it. Keep the implementation constr
         completed_at: today(),
       });
       await writeFile(archivedPath, nextContent, "utf8");
+      await updateSpecTracking(ctx.cwd, id, "completed", nextContent);
       showReport(pi, ctx, "Completed specification", archivedPath);
     },
   });
@@ -423,6 +470,7 @@ function getSpecPaths(root: string): SpecPaths {
     root,
     specs,
     context: join(specs, "PROJECT_CONTEXT.md"),
+    tracking: join(specs, "SPEC_TRACKING.md"),
     raw: join(specs, "raw_specs"),
     refined: join(specs, "refined_specs"),
     archived: join(specs, "archived_specs"),
@@ -448,8 +496,10 @@ async function initializeSpecForge(ctx: ExtensionCommandContext, options: { mode
     actions.push(`Created ${paths.context}`);
   }
 
-  const gitignoreChanged = await ensureGitignore(paths.gitignore);
-  if (gitignoreChanged) actions.push(`Updated ${paths.gitignore}`);
+  if (await ensureSpecTracking(paths)) actions.push(`Created ${paths.tracking}`);
+
+  const gitignoreChanged = await allowSpecForgeGitTracking(paths.gitignore);
+  if (gitignoreChanged) actions.push(`Updated ${paths.gitignore} to allow tracking SpecForge specs`);
 
   if (actions.length === 0) actions.push("No changes needed.");
   return actions;
@@ -505,18 +555,198 @@ ${extraPrinciples.map((principle) => `- ${principle}`).join("\n")}
 `;
 }
 
-async function ensureGitignore(path: string): Promise<boolean> {
-  const block = ["# SpecForge", "specs/raw_specs/", "specs/refined_specs/"];
-  const current = await readFile(path, "utf8").catch(() => "");
-  const missing = block.filter((line) => !current.split(/\r?\n/).includes(line));
-  if (missing.length === 0) return false;
+async function allowSpecForgeGitTracking(path: string): Promise<boolean> {
+  const current = await readFile(path, "utf8").catch(() => undefined);
+  if (current === undefined) return false;
 
-  const prefix = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
-  const needsHeader = !current.split(/\r?\n/).includes("# SpecForge");
-  const entries = [needsHeader ? "# SpecForge" : undefined, ...block.slice(1).filter((line) => missing.includes(line))]
-    .filter((line): line is string => Boolean(line));
-  await writeFile(path, `${current}${prefix}${entries.join("\n")}\n`, "utf8");
+  const removedEntries = new Set(["# SpecForge", "specs/raw_specs/", "specs/refined_specs/"]);
+  const lines = current.split(/\r?\n/);
+  const nextLines = lines.filter((line) => !removedEntries.has(line.trim()));
+  if (nextLines.length === lines.length) return false;
+
+  const next = nextLines.join("\n").replace(/\n{3,}/g, "\n\n");
+  await writeFile(path, next.length === 0 || next === "\n" ? "" : next.endsWith("\n") ? next : `${next}\n`, "utf8");
   return true;
+}
+
+async function ensureSpecTracking(paths: SpecPaths): Promise<boolean> {
+  if (await exists(paths.tracking)) return false;
+  const entries = await discoverTrackingEntries(paths);
+  await writeFile(paths.tracking, formatTrackingContent(entries), "utf8");
+  return true;
+}
+
+async function updateSpecTracking(root: string, id: string, status: TrackingStatus, content?: string): Promise<void> {
+  const paths = getSpecPaths(root);
+  if (!(await exists(paths.tracking))) await ensureSpecTracking(paths);
+
+  const current = await readFile(paths.tracking, "utf8").catch(() => "");
+  const entries = parseTrackingEntries(current);
+  const existing = entries.find((entry) => entry.id === id);
+  const nextEntry = buildTrackingEntry(id, status, content, existing);
+  const nextEntries = [...entries.filter((entry) => entry.id !== id), nextEntry]
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  await writeFile(paths.tracking, formatTrackingContent(nextEntries), "utf8");
+}
+
+async function discoverTrackingEntries(paths: SpecPaths): Promise<TrackingEntry[]> {
+  const entries = new Map<string, TrackingEntry>();
+
+  await addDiscoveredSpecs(entries, paths.raw, "raw");
+  await addDiscoveredSpecs(entries, paths.refined, "refined");
+  await addDiscoveredSpecs(entries, paths.archived, "approved");
+
+  return Array.from(entries.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function addDiscoveredSpecs(entries: Map<string, TrackingEntry>, dir: string, fallbackStatus: TrackingStatus): Promise<void> {
+  const files = await readdir(dir).catch(() => []);
+  for (const file of files.filter((name) => name.endsWith(".md")).sort()) {
+    const id = file.replace(/\.md$/, "");
+    const content = await readFile(join(dir, file), "utf8").catch(() => "");
+    const metadata = parseMetadata(splitFrontmatter(content).frontmatter);
+    const status = metadata.status === "completed" ? "completed" : fallbackStatus;
+    entries.set(id, buildTrackingEntry(id, status, content, entries.get(id)));
+  }
+}
+
+function buildTrackingEntry(id: string, status: TrackingStatus, content?: string, existing?: TrackingEntry): TrackingEntry {
+  return {
+    id,
+    title: extractSpecTitle(id, content) || existing?.title || humanizeId(id),
+    description: extractSpecDescription(content) || existing?.description || "Pending details",
+    status,
+    updated: today(),
+  };
+}
+
+function extractSpecTitle(id: string, content = ""): string {
+  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  if (heading && !/^feature idea$/i.test(heading)) return truncateInline(heading, 80);
+  return humanizeId(id);
+}
+
+function extractSpecDescription(content = ""): string {
+  for (const heading of ["Problem Statement", "Problem", "Expected Behavior", "User Story", "Scope"]) {
+    const section = extractSectionText(content, heading);
+    if (section) return truncateInline(section, 140);
+  }
+  return "";
+}
+
+function extractSectionText(content: string, heading: string): string {
+  const pattern = new RegExp(`##\\s+${escapeRegExp(heading)}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|\\n#\\s+|$)`, "i");
+  const match = content.match(pattern);
+  if (!match) return "";
+  return match[1]
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[-*]\s+/, "").trim())
+    .find((line) => line.length > 0 && !/^(TODO|TBD|N\/A|None)$/i.test(line)) || "";
+}
+
+function parseTrackingEntries(content: string): TrackingEntry[] {
+  const sectionStart = content.search(/##\s+Specifications/i);
+  if (sectionStart === -1) return [];
+
+  const section = content.slice(sectionStart);
+  const entries: TrackingEntry[] = [];
+  for (const line of section.split(/\r?\n/)) {
+    const cells = splitMarkdownRow(line);
+    if (!cells || cells.length < 5) continue;
+    if (/^spec id$/i.test(cells[0]) || /^---+$/.test(cells[0])) continue;
+    const status = parseTrackingStatus(cells[3]);
+    if (!status) continue;
+    entries.push({
+      id: cells[0],
+      title: cells[1] || humanizeId(cells[0]),
+      description: cells[2] || "Pending details",
+      status,
+      updated: cells[4] || today(),
+    });
+  }
+  return entries;
+}
+
+function splitMarkdownRow(line: string): string[] | undefined {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return undefined;
+  return trimmed.slice(1, -1).split("|").map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function parseTrackingStatus(value: string): TrackingStatus | undefined {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("raw")) return "raw";
+  if (normalized.includes("refined")) return "refined";
+  if (normalized.includes("approved")) return "approved";
+  if (normalized.includes("completed")) return "completed";
+  return undefined;
+}
+
+function formatTrackingContent(entries: TrackingEntry[]): string {
+  const counts = countTrackingStatuses(entries);
+  const rows = entries.map((entry) => `| ${escapeMarkdownCell(entry.id)} | ${escapeMarkdownCell(entry.title)} | ${escapeMarkdownCell(entry.description)} | ${trackingStatusLabel(entry.status)} | ${entry.updated} |`);
+
+  return `# SPEC_TRACKING
+
+SpecForge specification statistics. This file is updated by /spec-new, /spec-refine, /spec-promote, and /spec-complete.
+
+## Summary
+
+| Status | Count |
+| --- | ---: |
+| ${trackingStatusLabel("raw")} | ${counts.raw} |
+| ${trackingStatusLabel("refined")} | ${counts.refined} |
+| ${trackingStatusLabel("approved")} | ${counts.approved} |
+| ${trackingStatusLabel("completed")} | ${counts.completed} |
+| **Total** | **${entries.length}** |
+
+## Specifications
+
+| Spec ID | Title | Description | Status | Updated |
+| --- | --- | --- | --- | --- |
+${rows.length > 0 ? rows.join("\n") : ""}
+`;
+}
+
+function countTrackingStatuses(entries: TrackingEntry[]): Record<TrackingStatus, number> {
+  return entries.reduce<Record<TrackingStatus, number>>((counts, entry) => {
+    counts[entry.status] += 1;
+    return counts;
+  }, { raw: 0, refined: 0, approved: 0, completed: 0 });
+}
+
+function trackingStatusLabel(status: TrackingStatus): string {
+  switch (status) {
+    case "raw":
+      return "📝 Raw";
+    case "refined":
+      return "🔧 Refined";
+    case "approved":
+      return "✅ Approved";
+    case "completed":
+      return "🎉 Completed";
+    default:
+      return status;
+  }
+}
+
+function humanizeId(id: string): string {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function escapeMarkdownCell(value: string): string {
+  return value.replace(/\r?\n/g, " ").replace(/\|/g, "/").trim();
+}
+
+function truncateInline(value: string, maxLength: number): string {
+  const singleLine = value.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= maxLength) return singleLine;
+  return `${singleLine.slice(0, maxLength - 1)}…`;
 }
 
 function parseInitMode(args: string): InitMode | undefined {
@@ -694,14 +924,40 @@ function formatSnippets(snippets: Array<{ path: string; content: string }>): str
   return snippets.map((snippet) => `--- ${snippet.path} ---\n${snippet.content}`).join("\n\n");
 }
 
+function parseSpecName(args: string): string | undefined {
+  const trimmed = args.trim().replace(/^['"]|['"]$/g, "");
+  if (!trimmed) return undefined;
+  if (!slugifySpecName(trimmed)) return undefined;
+  return trimmed;
+}
+
+function formatSpecTitleFromName(name: string): string {
+  return /[\s_]/.test(name) ? name.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() : humanizeId(slugifySpecName(name));
+}
+
+async function createUniqueSpecId(paths: SpecPaths, name: string): Promise<string> {
+  const slug = slugifySpecName(name);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const id = `${randomBytes(3).toString("hex")}-${slug}`;
+    if ((await findSpecConflicts(paths, id)).length === 0) return id;
+  }
+  throw new Error(`Unable to create a unique spec id for ${name}`);
+}
+
+function slugifySpecName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
 function parseFeatureId(args: string): string | undefined {
   const trimmed = args.trim();
   if (!trimmed) return undefined;
   return trimmed.split(/\s+/)[0];
-}
-
-function isKebabCase(value: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }
 
 async function findSpecConflicts(paths: SpecPaths, id: string): Promise<string[]> {
@@ -804,8 +1060,12 @@ function validatePromotableSpec(content: string): { ok: boolean; score: number; 
   const score = extractReadinessScore(content);
   const reasons: string[] = [];
   if (score < 8) reasons.push(`Readiness score must be >= 8/10. Found: ${Number.isFinite(score) ? `${score}/10` : "missing"}`);
+  if (!sectionHasContent(content, "Priority")) reasons.push("Priority is missing or empty.");
+  if (!sectionHasContent(content, "Effort")) reasons.push("Effort is missing or empty.");
+  if (!sectionHasContent(content, "Business Value")) reasons.push("Business value is missing or empty.");
   if (!sectionHasContent(content, "Acceptance Criteria")) reasons.push("Acceptance criteria are missing or empty.");
   if (!sectionHasContent(content, "Tasks")) reasons.push("Tasks are missing or empty.");
+  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include priority, estimated work, and description.");
   if (hasBlockingMissingItems(content)) reasons.push("Missing Before Implementation contains unresolved items.");
   if (content.includes("Missing item 1") || content.includes("Missing item 2")) reasons.push("Template placeholder missing items are still present.");
   return { ok: reasons.length === 0, score, reasons };
@@ -834,6 +1094,20 @@ function sectionHasContent(content: string, heading: string): boolean {
     .replace(/[-*]\s*(TODO|TBD|None|N\/A)\s*/gi, "")
     .trim();
   return body.length > 0;
+}
+
+function tasksHaveRequiredFields(content: string): boolean {
+  const tasks: string[] = [];
+  const taskPattern = /###\s+Task[^\n]*\n([\s\S]*?)(?=\n###\s+Task|\n##\s+|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = taskPattern.exec(content)) !== null) tasks.push(match[1]);
+  if (tasks.length === 0) return false;
+
+  return tasks.every((task) => {
+    return /Priority:\s*\S/i.test(task)
+      && /Estimated work:\s*\S/i.test(task)
+      && /Description:\s*\S/i.test(task);
+  });
 }
 
 function hasBlockingMissingItems(content: string): boolean {
