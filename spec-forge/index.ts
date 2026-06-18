@@ -129,6 +129,11 @@ type ProjectScanSummary = {
   snippets: Array<{ path: string; content: string }>;
 };
 
+type SpecSelectionOption = {
+  id: string;
+  label: string;
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("spec-forge", (message, _options, theme) => {
     const title = theme.fg("accent", theme.bold("SpecForge"));
@@ -220,11 +225,16 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("spec-refine", {
     description: "Refine a raw feature idea into an implementation-ready specification",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-refine <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.raw,
+        prompt: "Select a raw spec to refine",
+        emptyMessage: "No raw specs found. Create one with /spec-new <spec-name>.",
+        usage: "/spec-refine <generated-feature-id>",
+      });
+      if (!id) return;
+
       const rawPath = join(paths.raw, `${id}.md`);
       const refinedPath = join(paths.refined, `${id}.md`);
 
@@ -275,11 +285,16 @@ When ready, write the refined specification to ${refinedPath}.`);
   pi.registerCommand("spec-review", {
     description: "Review a refined specification for implementation readiness",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-review <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.refined,
+        prompt: "Select a refined spec to review",
+        emptyMessage: "No refined specs found. Run /spec-refine first.",
+        usage: "/spec-review <generated-feature-id>",
+      });
+      if (!id) return;
+
       const refinedPath = join(paths.refined, `${id}.md`);
       if (!(await exists(refinedPath))) return fail(ctx, `Refined spec not found: ${refinedPath}`);
 
@@ -354,11 +369,16 @@ Before scoring, inspect additional relevant repository files if needed so the au
   pi.registerCommand("spec-fix", {
     description: "Fix a refined specification using /spec-review notes",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-fix <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.refined,
+        prompt: "Select a refined spec to fix",
+        emptyMessage: "No refined specs found. Run /spec-refine first.",
+        usage: "/spec-fix <generated-feature-id>",
+      });
+      if (!id) return;
+
       const refinedPath = join(paths.refined, `${id}.md`);
       if (!(await exists(refinedPath))) return fail(ctx, `Refined spec not found: ${refinedPath}`);
 
@@ -424,11 +444,16 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
   pi.registerCommand("spec-promote", {
     description: "Promote a reviewed specification into archived_specs",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-promote <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.refined,
+        prompt: "Select a refined spec to promote",
+        emptyMessage: "No refined specs found. Run /spec-refine and /spec-review first.",
+        usage: "/spec-promote <generated-feature-id>",
+      });
+      if (!id) return;
+
       const refinedPath = join(paths.refined, `${id}.md`);
       const archivedPath = join(paths.archived, `${id}.md`);
       if (!(await exists(refinedPath))) return fail(ctx, `Refined spec not found: ${refinedPath}`);
@@ -474,11 +499,17 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
   pi.registerCommand("spec-start", {
     description: "Begin implementation of a promoted feature",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-start <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.archived,
+        prompt: "Select an approved spec to start",
+        emptyMessage: "No ready archived specs found. Run /spec-promote first.",
+        usage: "/spec-start <generated-feature-id>",
+        statusFilter: (metadata) => metadata.status === "ready",
+      });
+      if (!id) return;
+
       const archivedPath = join(paths.archived, `${id}.md`);
       if (!(await exists(archivedPath))) return fail(ctx, `Archived spec not found: ${archivedPath}`);
 
@@ -516,11 +547,17 @@ Read the archived specification and implement it. Keep the implementation constr
   pi.registerCommand("spec-complete", {
     description: "Mark an archived specification as completed",
     handler: async (args, ctx) => {
-      const id = parseFeatureId(args);
-      if (!id) return showUsage(ctx, "/spec-complete <generated-feature-id>");
       await initializeSpecForge(ctx);
-
       const paths = getSpecPaths(ctx.cwd);
+      const id = await resolveFeatureId(args, ctx, {
+        directory: paths.archived,
+        prompt: "Select an in-progress spec to complete",
+        emptyMessage: "No in-progress archived specs found. Run /spec-start first.",
+        usage: "/spec-complete <generated-feature-id>",
+        statusFilter: (metadata) => metadata.status === "in_progress",
+      });
+      if (!id) return;
+
       const archivedPath = join(paths.archived, `${id}.md`);
       if (!(await exists(archivedPath))) return fail(ctx, `Archived spec not found: ${archivedPath}`);
 
@@ -1083,6 +1120,53 @@ function parseFeatureId(args: string): string | undefined {
   const trimmed = args.trim();
   if (!trimmed) return undefined;
   return trimmed.split(/\s+/)[0];
+}
+
+async function resolveFeatureId(args: string, ctx: ExtensionCommandContext, options: {
+  directory: string;
+  prompt: string;
+  emptyMessage: string;
+  usage: string;
+  statusFilter?: (metadata: SpecMetadata) => boolean;
+}): Promise<string | undefined> {
+  const parsed = parseFeatureId(args);
+  if (parsed) return parsed;
+
+  if (!ctx.hasUI) {
+    await showUsage(ctx, options.usage);
+    return undefined;
+  }
+
+  const choices = await listSelectableSpecs(options.directory, options.statusFilter);
+  if (choices.length === 0) {
+    await fail(ctx, options.emptyMessage);
+    return undefined;
+  }
+
+  const selected = await ctx.ui.select(options.prompt, choices.map((choice) => choice.label));
+  const selectedLabel = String(selected || "");
+  return choices.find((choice) => choice.label === selectedLabel)?.id;
+}
+
+async function listSelectableSpecs(directory: string, statusFilter?: (metadata: SpecMetadata) => boolean): Promise<SpecSelectionOption[]> {
+  const files = await readdir(directory).catch(() => []);
+  const choices: SpecSelectionOption[] = [];
+
+  for (const file of files.filter((name) => name.endsWith(".md")).sort()) {
+    const id = file.replace(/\.md$/, "");
+    const content = await readFile(join(directory, file), "utf8").catch(() => "");
+    const metadata = parseMetadata(splitFrontmatter(content).frontmatter);
+    if (statusFilter && !statusFilter(metadata)) continue;
+
+    const title = extractSpecTitle(id, content);
+    const status = metadata.status ? ` [${metadata.status}${metadata.readiness_score ? `, readiness ${metadata.readiness_score}/10` : ""}]` : "";
+    choices.push({
+      id,
+      label: `${id} — ${title}${status}`,
+    });
+  }
+
+  return choices;
 }
 
 async function findSpecConflicts(paths: SpecPaths, id: string): Promise<string[]> {

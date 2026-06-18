@@ -22,27 +22,27 @@ Raw Idea
 specs/raw_specs/<generated-feature-id>.md
    │
    ▼
-/spec-refine <generated-feature-id>
+/spec-refine [generated-feature-id]
    │
    ▼
 specs/refined_specs/<generated-feature-id>.md
    │
    ▼
-/spec-review <generated-feature-id>
+/spec-review [generated-feature-id]
    │
    ▼
 Readiness score + comments in "Missing Before Implementation"
    │
-   ├── if not ready ──► /spec-fix <generated-feature-id> ──► /spec-review <generated-feature-id>
+   ├── if not ready ──► /spec-fix [generated-feature-id] ──► /spec-review [generated-feature-id]
    │
    ▼
-/spec-promote <generated-feature-id>
+/spec-promote [generated-feature-id]
    │
    ▼
 specs/archived_specs/<generated-feature-id>.md
    │
    ▼
-/spec-start <generated-feature-id>
+/spec-start [generated-feature-id]
    │
    ▼
 Implementation handoff to pi
@@ -51,7 +51,7 @@ Implementation handoff to pi
 Implementation work
    │
    ▼
-/spec-complete <generated-feature-id>
+/spec-complete [generated-feature-id]
 ```
 
 Optional anytime:
@@ -61,6 +61,8 @@ Optional anytime:
 /spec-prioritize
 /spec-refresh
 ```
+
+For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage.
 
 ---
 
@@ -135,9 +137,9 @@ Example:
 # creates specs/raw_specs/a1b2c3-semantic-search.md
 ```
 
-### `/spec-refine <generated-feature-id>`
+### `/spec-refine [generated-feature-id]`
 
-Turns a raw idea into a refined spec in `specs/refined_specs/`.
+Turns a raw idea into a refined spec in `specs/refined_specs/`. In the TUI, omit the id to select from available files in `specs/raw_specs/`.
 
 The agent should:
 
@@ -157,9 +159,9 @@ Question budget:
 | `MEDIUM` | 8 |
 | `ADVANCED` | 12 |
 
-### `/spec-review <generated-feature-id>`
+### `/spec-review [generated-feature-id]`
 
-Reviews a refined spec for implementation readiness.
+Reviews a refined spec for implementation readiness. In the TUI, omit the id to select from available files in `specs/refined_specs/`.
 
 Important rule:
 
@@ -169,9 +171,9 @@ Checks include scope, requirements, numeric planning fields, tasks, acceptance c
 
 Promotion requires readiness score `>= 8/10` and no blocking open questions.
 
-### `/spec-fix <generated-feature-id>`
+### `/spec-fix [generated-feature-id]`
 
-Applies `/spec-review` feedback to the refined spec.
+Applies `/spec-review` feedback to the refined spec. In the TUI, omit the id to select from available files in `specs/refined_specs/`.
 
 The agent should:
 
@@ -184,9 +186,9 @@ The agent should:
 
 After fixing, run `/spec-review <id>` again.
 
-### `/spec-promote <generated-feature-id>`
+### `/spec-promote [generated-feature-id]`
 
-Moves a reviewed refined spec into `specs/archived_specs/` and adds metadata.
+Moves a reviewed refined spec into `specs/archived_specs/` and adds metadata. In the TUI, omit the id to select from available files in `specs/refined_specs/`.
 
 Promotion is denied unless:
 
@@ -204,9 +206,9 @@ Updates tracking to `✅ Approved`.
 
 Reads open archived specs and recommends implementation order using priority, business value, effort, blockers, status, and readiness.
 
-### `/spec-start <generated-feature-id>`
+### `/spec-start [generated-feature-id]`
 
-Starts implementation of an archived spec.
+Starts implementation of an archived spec. In the TUI, omit the id to select from ready specs in `specs/archived_specs/`.
 
 - Requires `status: ready`.
 - Updates metadata to `status: in_progress` and sets `started_at`.
@@ -214,9 +216,9 @@ Starts implementation of an archived spec.
 
 Implementation must follow the archived spec’s Scope, Out of Scope, Tasks, and Acceptance Criteria. No extra discovery unless explicitly allowed by the spec.
 
-### `/spec-complete <generated-feature-id>`
+### `/spec-complete [generated-feature-id]`
 
-Marks an archived spec completed, sets `completed_at`, and updates tracking to `🎉 Completed`.
+Marks an archived spec completed, sets `completed_at`, and updates tracking to `🎉 Completed`. In the TUI, omit the id to select from in-progress specs in `specs/archived_specs/`.
 
 ### `/spec-status`
 
