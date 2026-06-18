@@ -118,7 +118,7 @@ specs/
 └── archived_specs/
 ```
 
-`/spec-init` creates this SpecForge file structure and prepares `PROJECT_CONTEXT.md` plus `SPEC_TRACKING.md`. In codebase mode it also starts a read-only project review so useful context can be captured. It does **not** initialize or modify an application project: no `uv init`, no `pyproject.toml`, no package manager setup, and no dependency installation.
+`/spec-init` creates this SpecForge file structure and prepares `PROJECT_CONTEXT.md` plus `SPEC_TRACKING.md`. It asks for the project maturity (`EARLY`, `MEDIUM`, or `ADVANCED`) and stores it in `PROJECT_CONTEXT.md`. In codebase mode it also starts a read-only project review so useful context can be captured. It does **not** initialize or modify an application project: no `uv init`, no `pyproject.toml`, no package manager setup, and no dependency installation.
 
 ### `specs/PROJECT_CONTEXT.md`
 
@@ -127,7 +127,7 @@ The lightweight project memory used during refinement and review.
 It should contain project-wide context only:
 
 - Session type: `codebase` or `planning`.
-- Project stage.
+- Project maturity/stage.
 - Technology stack.
 - Libraries and frameworks.
 - Tooling.
@@ -294,19 +294,21 @@ This SpecForge workspace is being used for planning. No implementation codebase 
 - Treat technical choices as provisional until validated
 ```
 
-### Project Stage Values
+### Project Maturity / Stage Values
 
 | Stage | Meaning | Planning Style |
 | --- | --- | --- |
 | `EARLY` | New or small project | Prefer simple, direct solutions |
 | `MEDIUM` | Growing project with established patterns | Preserve consistency and manage dependencies |
-| `ADVANCED` | Mature project with scale or compliance concerns | Require stronger technical validation |
+| `ADVANCED` | Mature project with scale, compliance, or complex dependencies | Require stronger technical validation |
+
+`/spec-init` and `/spec-refresh` ask for this maturity and update `## STAGE` accordingly.
 
 ### Update Rules
 
 `PROJECT_CONTEXT.md` may be updated when a project-wide decision is discovered, either manually or during a later command such as `/spec-promote`.
 
-`/spec-init` creates the file if it is missing. In normal codebase mode, it starts a read-only review to fill useful insights. If `PROJECT_CONTEXT.md` already exists, `/spec-init` asks for confirmation before appending a timestamped review section. Use `/spec-refresh` for intentional re-review later.
+`/spec-init` creates the file if it is missing and asks for project maturity. In normal codebase mode, it starts a read-only review to fill useful insights. If `PROJECT_CONTEXT.md` already exists, `/spec-init` asks for confirmation before appending a timestamped review section. Use `/spec-refresh` for intentional re-review later; refresh also asks for maturity and preserves `SESSION_TYPE: planning` for planning-only workspaces.
 
 Do not add feature-specific implementation details.
 
@@ -333,17 +335,19 @@ Default codebase mode responsibilities:
 2. Create missing SpecForge folders and files.
 3. Remove old SpecForge ignore entries from `.gitignore` if present so specs can be tracked.
 4. Generate `specs/PROJECT_CONTEXT.md` if it does not exist.
-5. Generate `specs/SPEC_TRACKING.md` if it does not exist.
-6. Gather a bounded, read-only repository summary.
-7. Ask the agent to review the project and update `PROJECT_CONTEXT.md` with technologies, libraries, tooling, coding style, architecture patterns, testing approach, conventions, constraints, and open questions.
+5. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
+6. Generate `specs/SPEC_TRACKING.md` if it does not exist.
+7. Gather a bounded, read-only repository summary.
+8. Ask the agent to review the project and update `PROJECT_CONTEXT.md` with technologies, libraries, tooling, coding style, architecture patterns, testing approach, conventions, constraints, and open questions.
 
 Planning mode responsibilities:
 
 1. Create or repair the same SpecForge folders.
 2. Remove old SpecForge ignore entries from `.gitignore` if present so specs can be tracked.
 3. Generate `PROJECT_CONTEXT.md` with `SESSION_TYPE` set to `planning` if it does not exist.
-4. Generate `SPEC_TRACKING.md` if it does not exist.
-5. Skip codebase scanning and implementation-stack assumptions.
+4. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
+5. Generate `SPEC_TRACKING.md` if it does not exist.
+6. Skip codebase scanning and implementation-stack assumptions.
 
 Non-responsibilities:
 
@@ -389,12 +393,13 @@ Refresh `specs/PROJECT_CONTEXT.md` from an intentional read-only project review.
 Responsibilities:
 
 1. Ensure the SpecForge file structure and `SPEC_TRACKING.md` exist.
-2. Gather a bounded repository summary.
-3. Ask the agent to inspect additional relevant files if useful.
-4. Update `PROJECT_CONTEXT.md` in place while preserving valuable manual notes.
-5. Append a timestamped review summary.
+2. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
+3. Gather a bounded repository summary.
+4. Ask the agent to inspect additional relevant files if useful.
+5. Update `PROJECT_CONTEXT.md` in place while preserving valuable manual notes.
+6. Append a timestamped review summary.
 
-Use `/spec-refresh` when the codebase has changed enough that project-level context may be stale.
+Use `/spec-refresh` when the codebase has changed enough that project-level context may be stale. If `PROJECT_CONTEXT.md` is marked as `SESSION_TYPE` `planning`, `/spec-refresh` must preserve planning mode and must not convert it to `codebase`.
 
 Safety rules:
 
@@ -402,6 +407,7 @@ Safety rules:
 - Do not install dependencies.
 - Do not add feature-specific details.
 - Keep the review read-only except for edits to `PROJECT_CONTEXT.md`.
+- Preserve `SESSION_TYPE: planning` for planning-only/spec-only workspaces; do not convert them to `codebase` during refresh.
 
 ---
 
@@ -471,11 +477,11 @@ Responsibilities:
 
 - Act like a technical product owner.
 - Read `PROJECT_CONTEXT.md`.
-- Determine the project stage.
+- Determine the project maturity/stage.
 - Ask targeted clarification questions.
 - Remove ambiguity.
-- Define feature-level Priority, Effort, and Business Value.
-- Break implementation into at least one task with Priority, Estimated work, and Description.
+- Define feature-level numeric Priority (1-10), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
+- Break implementation into at least one task with numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
 - Detect over-engineering.
 - Suggest simpler alternatives.
 - Produce a refined specification using the feature specification template.
@@ -483,7 +489,7 @@ Responsibilities:
 
 ### Question Budget
 
-| Project Stage | Maximum Questions |
+| Project Maturity | Maximum Questions |
 | --- | ---: |
 | `EARLY` | 5 |
 | `MEDIUM` | 8 |
@@ -514,26 +520,27 @@ Role:
 - Act like a senior software engineer auditor.
 - Review with fresh repository context, not only the existing `PROJECT_CONTEXT.md`.
 - Use fresh context for the audit only; do not refresh `PROJECT_CONTEXT.md` during `/spec-review`.
-- Calibrate strictness and technical depth to the current project stage.
+- Calibrate strictness and technical depth to the current project maturity/stage.
 
 Checks:
 
 - Scope clarity.
 - Missing requirements.
-- Feature-level Priority, Effort, and Business Value.
+- Feature-level numeric Priority (1-10), Effort (story points), and Business Value (1-10).
 - At least one implementation task exists.
-- Every task has Priority, Estimated work, and Description, regardless of the task heading text.
+- Every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description, regardless of the task heading text.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
-- Scalability assumptions appropriate for the project stage.
+- Scalability assumptions appropriate for the project maturity/stage.
 - Dependencies and blockers.
 - Over-engineering risks.
 - Whether the spec still represents exactly one feature.
 
 Output:
 
-- Review notes added to the refined spec.
+- The refined story/specification content is not rewritten by review.
+- Review comments are added only under `### Missing Before Implementation` in the Implementation Readiness section; review notes should not be written anywhere else.
 - An implementation readiness score from `0/10` to `10/10`.
 - A list of missing items, if any.
 
@@ -548,7 +555,7 @@ Readiness measures whether an implementation agent can begin work without anothe
 | Out of Scope Defined | 1 |
 | Functional Requirements Defined | 2 |
 | Acceptance Criteria Defined | 2 |
-| Tasks Defined with Priority/Estimated Work | 1 |
+| Tasks Defined with Numeric Priority/Effort/Business Value | 1 |
 | Dependencies Defined | 1 |
 | Technical Direction Defined | 1 |
 | **Total** | **10** |
@@ -588,11 +595,12 @@ Responsibilities:
 
 1. Read the refined specification and existing review notes.
 2. Address low-scoring readiness items and `Missing Before Implementation` items.
-3. Fill or improve Priority, Effort, Business Value, tasks, and acceptance criteria.
-4. Keep at least one task and ensure every task has Priority, Estimated work, and Description.
-5. Remove stale placeholders or resolved review notes.
-6. Keep the spec in `refined_specs/`; do not promote it.
-7. Mark `specs/SPEC_TRACKING.md` as `🔧 Refined`.
+3. Implement every actionable comment listed under `Missing Before Implementation` in the relevant refined specification sections.
+4. Fill or improve numeric Priority (1-10), Effort (story points), Business Value (1-10), tasks, and acceptance criteria.
+5. Keep at least one task and ensure every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
+6. Remove stale placeholders or resolved review notes and replace resolved missing items with `- None`.
+7. Keep the spec in `refined_specs/`; do not promote it.
+8. Mark `specs/SPEC_TRACKING.md` as `🔧 Refined`.
 
 After running `/spec-fix`, run `/spec-review <generated-feature-id>` again before promotion.
 
@@ -633,11 +641,11 @@ Promotion is allowed only when:
 
 - `readiness_score >= 8`.
 - No blocking open questions exist.
-- Priority, Effort, and Business Value are defined.
+- Numeric Priority (1-10), Effort (story points), and Business Value (1-10) are defined.
 - Acceptance criteria are defined.
 - At least one task exists.
 - Tasks are scoped and actionable.
-- Every task includes Priority, Estimated work, and Description, regardless of the task heading text.
+- Every task includes numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description, regardless of the task heading text.
 - The specification represents exactly one feature.
 
 ---
@@ -666,9 +674,10 @@ Recommended Next Feature
 oauth-authentication
 
 Reason:
-- High priority
+- Priority 9/10
+- Business value 8/10
+- Effort 3 story points
 - Blocks 3 features
-- Small implementation effort
 ```
 
 ---
@@ -779,10 +788,13 @@ Every refined and archived specification should follow this structure. This is t
 ## Problem Statement
 
 ## Priority
+Numeric priority score (1-10):
 
 ## Effort
+Story points (1, 2, 3, 5, 8, 13):
 
 ## Business Value
+Numeric business value score (1-10):
 
 ## Scope
 
@@ -800,8 +812,9 @@ Every refined and archived specification should follow this structure. This is t
 
 ### Task 1
 
-- Priority:
-- Estimated work:
+- Priority (1-10):
+- Effort (story points):
+- Business Value (1-10):
 - Description:
 
 ## Acceptance Criteria
@@ -821,7 +834,7 @@ Every refined and archived specification should follow this structure. This is t
 | Out of Scope Defined | 0/1 |
 | Functional Requirements Defined | 0/2 |
 | Acceptance Criteria Defined | 0/2 |
-| Tasks Defined with Priority/Estimated Work | 0/1 |
+| Tasks Defined with Numeric Priority/Effort/Business Value | 0/1 |
 | Dependencies Defined | 0/1 |
 | Technical Direction Defined | 0/1 |
 
@@ -845,7 +858,7 @@ Every archived specification must contain YAML front matter.
 ---
 id: a1b2c3-semantic-search
 status: ready
-priority: high
+priority: 8
 readiness_score: 9
 depends_on:
   - d4e5f6-oauth-authentication
@@ -864,13 +877,13 @@ completed_at:
 | `blocked` | Cannot proceed until dependencies or questions are resolved |
 | `completed` | Implementation is complete |
 
-### Priority Values
+### Numeric Planning Values
 
-| Priority | Meaning |
-| --- | --- |
-| `high` | Important, urgent, or blocks other work |
-| `medium` | Valuable but not immediately blocking |
-| `low` | Nice-to-have or future improvement |
+| Field | Scale | Meaning |
+| --- | --- | --- |
+| `priority` | `1`–`10` | Overall urgency/order signal; `10` is highest priority |
+| `Effort` | Story points such as `1`, `2`, `3`, `5`, `8`, `13` | Relative implementation size/complexity |
+| `Business Value` | `1`–`10` | Expected user/business impact; `10` is highest value |
 
 ---
 
@@ -965,8 +978,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("spec-init", {
     description: "Initialize SpecForge and create PROJECT_CONTEXT.md insights",
     handler: async (args, ctx) => {
-      // /spec-init creates the spec structure and starts a read-only context review.
-      // /spec-init --plan creates planning-session context and skips codebase scanning.
+      // /spec-init creates the spec structure, asks for maturity, and starts a read-only context review.
+      // /spec-init --plan creates planning-session context, asks for maturity, and skips codebase scanning.
       // Do not run uv/npm/pnpm/yarn or create application project files.
       ctx.ui.notify("SpecForge initialized", "info");
     },
@@ -975,7 +988,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("spec-refresh", {
     description: "Refresh PROJECT_CONTEXT.md from a read-only project review",
     handler: async (_args, ctx) => {
-      // Gather project summary and ask pi to update PROJECT_CONTEXT.md.
+      // Ask for maturity, gather project summary, preserve planning SESSION_TYPE, and ask pi to update PROJECT_CONTEXT.md.
     },
   });
 

@@ -18,10 +18,13 @@ function buildRawTemplate(title: string): string {
 const SPEC_TEMPLATE = `## Problem Statement
 
 ## Priority
+Numeric priority score (1-10):
 
 ## Effort
+Story points (1, 2, 3, 5, 8, 13):
 
 ## Business Value
+Numeric business value score (1-10):
 
 ## Scope
 
@@ -39,8 +42,9 @@ const SPEC_TEMPLATE = `## Problem Statement
 
 ### Task 1
 
-- Priority:
-- Estimated work:
+- Priority (1-10):
+- Effort (story points):
+- Business Value (1-10):
 - Description:
 
 ## Acceptance Criteria
@@ -60,7 +64,7 @@ const SPEC_TEMPLATE = `## Problem Statement
 | Out of Scope Defined | 0/1 |
 | Functional Requirements Defined | 0/2 |
 | Acceptance Criteria Defined | 0/2 |
-| Tasks Defined with Priority/Estimated Work | 0/1 |
+| Tasks Defined with Numeric Priority/Effort/Business Value | 0/1 |
 | Dependencies Defined | 0/1 |
 | Technical Direction Defined | 0/1 |
 
@@ -75,7 +79,6 @@ const SPEC_TEMPLATE = `## Problem Statement
 `;
 
 type Stage = "EARLY" | "MEDIUM" | "ADVANCED";
-type Priority = "high" | "medium" | "low";
 type SpecStatus = "ready" | "in_progress" | "blocked" | "completed";
 
 type SpecPaths = {
@@ -92,7 +95,7 @@ type SpecPaths = {
 type SpecMetadata = {
   id?: string;
   status?: SpecStatus | string;
-  priority?: Priority | string;
+  priority?: string;
   readiness_score?: string;
   depends_on?: string[];
   created_at?: string;
@@ -141,6 +144,10 @@ export default function (pi: ExtensionAPI) {
       const paths = getSpecPaths(ctx.cwd);
       const contextExisted = await exists(paths.context);
       const result = await initializeSpecForge(ctx, { mode });
+      const maturity = await resolveProjectMaturity(ctx, paths.context);
+      if (await updateProjectMaturity(paths.context, maturity)) {
+        result.push(`Set project maturity to ${maturity}`);
+      }
 
       if (mode === "planning") {
         if (contextExisted) {
@@ -167,7 +174,10 @@ export default function (pi: ExtensionAPI) {
       }
 
       const scan = await scanProjectForContext(ctx.cwd);
-      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, contextExisted ? "append" : "created"));
+      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, contextExisted ? "append" : "created", {
+        maturity,
+        sessionType: "codebase",
+      }));
     },
   });
 
@@ -175,10 +185,17 @@ export default function (pi: ExtensionAPI) {
     description: "Refresh PROJECT_CONTEXT.md from a read-only project review",
     handler: async (_args, ctx) => {
       const paths = getSpecPaths(ctx.cwd);
-      await initializeSpecForge(ctx, { mode: "codebase" });
+      const existingContext = await readFile(paths.context, "utf8").catch(() => "");
+      const sessionType: InitMode = isPlanningContext(existingContext) ? "planning" : "codebase";
+      await initializeSpecForge(ctx, { mode: sessionType });
+      const maturity = await resolveProjectMaturity(ctx, paths.context);
+      await updateProjectMaturity(paths.context, maturity);
       const scan = await scanProjectForContext(ctx.cwd);
-      showReport(pi, ctx, "Started SpecForge context refresh", `Reviewing project context for ${paths.context}`);
-      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, "refresh"));
+      showReport(pi, ctx, "Started SpecForge context refresh", `Reviewing project context for ${paths.context}\nProject maturity: ${maturity}\nSession type: ${sessionType}`);
+      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, "refresh", {
+        maturity,
+        sessionType,
+      }));
     },
   });
 
@@ -232,12 +249,12 @@ Rules:
 - Act like a technical product owner: clarify product intent, implementation value, prioritization, scope, and delivery slices.
 - Follow ONE SPEC = ONE FEATURE.
 - If the raw idea contains multiple features, stop and recommend splitting it instead of writing a multi-feature spec.
-- Project stage is ${stage}; ask at most ${questionBudget} targeted clarification questions.
+- Project maturity/stage is ${stage}; ask at most ${questionBudget} targeted clarification questions.
 - If the information is already sufficient, ask fewer questions or no questions.
 - Avoid over-engineering and right-size the solution to the project maturity.
-- Define feature-level Priority, Effort, and Business Value.
+- Define feature-level numeric Priority (1-10), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
 - Include at least one implementation task.
-- For every task, include Priority, Estimated work, and Description.
+- For every task, include numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
 - Remove unused task placeholders; add more task sections only when needed.
 - Use this exact feature specification structure:
 
@@ -276,21 +293,21 @@ When ready, write the refined specification to ${refinedPath}.`);
       pi.sendUserMessage(`You are running SpecForge /spec-review for feature id: ${id}.
 
 Role:
-Act like a senior software engineer auditor. Review with fresh repository context, not only the existing PROJECT_CONTEXT.md. Use fresh context for the audit only; do not refresh PROJECT_CONTEXT.md during /spec-review. Calibrate strictness and technical depth to project stage: ${stage}.
+Act like a senior software engineer auditor. Review with fresh repository context, not only the existing PROJECT_CONTEXT.md. Use fresh context for the audit only; do not refresh PROJECT_CONTEXT.md during /spec-review. Calibrate strictness and technical depth to project maturity/stage: ${stage}.
 
-Review this refined specification and update the file in place:
+Review this refined specification without changing the refined story/specification content. Update only its Implementation Readiness section in place:
 ${refinedPath}
 
 Checks:
 - Scope clarity.
 - Missing requirements.
-- Feature-level Priority, Effort, and Business Value.
+- Feature-level numeric Priority (1-10), Effort (story points), and Business Value (1-10).
 - At least one implementation task exists.
-- Every task has Priority, Estimated work, and Description.
+- Every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
-- Scalability assumptions appropriate for project stage ${stage}.
+- Scalability assumptions appropriate for project maturity/stage ${stage}.
 - Dependencies and blockers.
 - Over-engineering risks.
 - Whether the spec still represents exactly one feature.
@@ -301,7 +318,7 @@ Readiness rubric:
 - Out of Scope Defined: 1
 - Functional Requirements Defined: 2
 - Acceptance Criteria Defined: 2
-- Tasks Defined with Priority/Estimated Work: 1
+- Tasks Defined with Numeric Priority/Effort/Business Value: 1
 - Dependencies Defined: 1
 - Technical Direction Defined: 1
 - Total: 10
@@ -330,7 +347,7 @@ Current refined specification:
 
 ${refinedSpec}
 
-Before scoring, inspect additional relevant repository files if needed so the audit uses fresh context. Update the Implementation Readiness section with score breakdown, total score, and missing items. Do not promote the spec.`);
+Before scoring, inspect additional relevant repository files if needed so the audit uses fresh context. Do not rewrite, expand, or correct the refined story/specification sections. Only update the Implementation Readiness section, and put review comments/actionable required changes under ### Missing Before Implementation. Do not add review notes anywhere else. Do not promote the spec.`);
     },
   });
 
@@ -365,17 +382,18 @@ Act like a technical product owner applying a senior software engineer auditor's
 Rules:
 - Address the existing review notes, low-scoring rubric items, and Missing Before Implementation items in the refined specification.
 - Preserve ONE SPEC = ONE FEATURE. If the review notes reveal multiple features, stop and recommend a split instead of broadening this spec.
-- Project stage is ${stage}; right-size fixes to this maturity level.
+- Project maturity/stage is ${stage}; right-size fixes to this maturity level.
 - Keep or restore this feature specification structure:
 
 ${SPEC_TEMPLATE}
 
-- Ensure Priority, Effort, and Business Value are filled.
+- Implement every actionable comment listed under ### Missing Before Implementation by updating the relevant refined specification sections.
+- Ensure feature-level Priority (1-10), Effort (story points), and Business Value (1-10) are numeric.
 - Ensure at least one implementation task exists.
-- Ensure every task has Priority, Estimated work, and Description.
+- Ensure every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
 - Strengthen acceptance criteria so implementation can be verified.
-- Remove resolved review placeholders or stale missing items.
-- Do not promote or move the spec. After fixing, the user should run /spec-review ${id} again.
+- After implementing the Missing Before Implementation comments, replace that list with "- None" so the next /spec-review can audit the updated spec from a clean state.
+- Do not run /spec-review yourself, promote, or move the spec. After fixing, the user should run /spec-review ${id} again.
 
 Project context:
 
@@ -424,7 +442,7 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
 
       const split = splitFrontmatter(content);
       const existingMetadata = parseMetadata(split.frontmatter);
-      const priority = await resolvePriority(ctx, existingMetadata.priority);
+      const priority = await resolvePriority(ctx, existingMetadata.priority, content);
       const metadata = buildFrontmatter({
         ...existingMetadata,
         id,
@@ -825,6 +843,39 @@ function parseInitMode(args: string): InitMode | undefined {
   return undefined;
 }
 
+async function resolveProjectMaturity(ctx: ExtensionCommandContext, contextPath: string): Promise<Stage> {
+  const current = detectStageFromContext(await readFile(contextPath, "utf8").catch(() => ""));
+  if (!ctx.hasUI) return current;
+
+  const selected = await ctx.ui.select("SpecForge project maturity", [
+    "EARLY - New or small project; prefer simple, direct solutions",
+    "MEDIUM - Growing project with established patterns",
+    "ADVANCED - Mature project with scale, compliance, or complex dependencies",
+  ]);
+  const selectedText = String(selected || "");
+  if (/^ADVANCED\b/.test(selectedText)) return "ADVANCED";
+  if (/^MEDIUM\b/.test(selectedText)) return "MEDIUM";
+  return "EARLY";
+}
+
+async function updateProjectMaturity(contextPath: string, maturity: Stage): Promise<boolean> {
+  const current = await readFile(contextPath, "utf8").catch(() => "");
+  if (!current) return false;
+
+  let next: string;
+  if (/##\s+STAGE\s*\n[^\n]*/i.test(current)) {
+    next = current.replace(/##\s+STAGE\s*\n[^\n]*/i, `## STAGE\n${maturity}`);
+  } else if (/##\s+SESSION_TYPE\s*\n[^\n]*/i.test(current)) {
+    next = current.replace(/(##\s+SESSION_TYPE\s*\n[^\n]*\n?)/i, `$1\n## STAGE\n${maturity}\n`);
+  } else {
+    next = `${current}${current.endsWith("\n") ? "" : "\n"}\n## STAGE\n${maturity}\n`;
+  }
+
+  if (next === current) return false;
+  await writeFile(contextPath, next, "utf8");
+  return true;
+}
+
 function isPlanningContext(content: string): boolean {
   return /##\s+SESSION_TYPE\s*\n\s*planning\s*$/im.test(content) || /planning session/i.test(content);
 }
@@ -941,12 +992,15 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength)}\n... (truncated)`;
 }
 
-function buildProjectContextReviewPrompt(contextPath: string, scan: ProjectScanSummary, mode: ContextUpdateMode): string {
+function buildProjectContextReviewPrompt(contextPath: string, scan: ProjectScanSummary, mode: ContextUpdateMode, options: { maturity: Stage; sessionType: InitMode }): string {
   const modeInstructions = mode === "created"
     ? "PROJECT_CONTEXT.md was just created from a minimal template. Update it in place with useful, concise insights from the project review."
     : mode === "append"
       ? "PROJECT_CONTEXT.md already existed. Do not rewrite or remove existing content. Append a timestamped project review section with concise insights and recommended context updates."
       : "Refresh PROJECT_CONTEXT.md intentionally. Preserve valuable manual notes, update stale insights, and append a timestamped project review summary.";
+  const sessionRule = options.sessionType === "planning"
+    ? "- Preserve SESSION_TYPE as planning. This is a planning-only SpecForge workspace; do not convert it to codebase during refresh."
+    : "- Keep SESSION_TYPE as codebase only when an implementation codebase is actually being reviewed.";
 
   return `You are running SpecForge ${mode === "refresh" ? "/spec-refresh" : "/spec-init"}.
 
@@ -964,7 +1018,9 @@ Rules:
 - Do not install dependencies.
 - Keep PROJECT_CONTEXT.md project-wide; do not add feature-specific implementation details.
 - Capture technologies, libraries/frameworks, tooling, architecture patterns, coding style, testing approach, conventions, constraints, and open questions.
-- If this is a planning-only/spec-only repository, set SESSION_TYPE to planning or clearly state that no codebase was reviewed.
+- Set ## STAGE to the user-selected project maturity: ${options.maturity}.
+${sessionRule}
+- If this is a planning-only/spec-only repository, keep or set SESSION_TYPE to planning and clearly state that no codebase was reviewed.
 
 Initial repository summary gathered by the extension:
 
@@ -1116,7 +1172,7 @@ function buildFrontmatter(metadata: SpecMetadata): string {
   return `---
 id: ${metadata.id || "unknown"}
 status: ${metadata.status || "ready"}
-priority: ${metadata.priority || "medium"}
+priority: ${metadata.priority || "5"}
 readiness_score: ${metadata.readiness_score || "0"}
 ${dependsOn}
 created_at: ${metadata.created_at || today()}
@@ -1128,13 +1184,16 @@ completed_at: ${metadata.completed_at || ""}
 function validatePromotableSpec(content: string): { ok: boolean; score: number; reasons: string[] } {
   const score = extractReadinessScore(content);
   const reasons: string[] = [];
-  if (score < 8) reasons.push(`Readiness score must be >= 8/10. Found: ${Number.isFinite(score) ? `${score}/10` : "missing"}`);
-  if (!sectionHasContent(content, "Priority")) reasons.push("Priority is missing or empty.");
-  if (!sectionHasContent(content, "Effort")) reasons.push("Effort is missing or empty.");
-  if (!sectionHasContent(content, "Business Value")) reasons.push("Business value is missing or empty.");
+  if (!Number.isFinite(score) || score < 8) reasons.push(`Readiness score must be >= 8/10. Found: ${Number.isFinite(score) ? `${score}/10` : "missing"}`);
+  const priorityScore = extractNumericSectionValue(content, "Priority");
+  const effortScore = extractNumericSectionValue(content, "Effort");
+  const businessValueScore = extractNumericSectionValue(content, "Business Value");
+  if (priorityScore === undefined || priorityScore < 1 || priorityScore > 10) reasons.push("Priority must be a numeric score from 1 to 10.");
+  if (effortScore === undefined || effortScore <= 0) reasons.push("Effort must be numeric story points.");
+  if (businessValueScore === undefined || businessValueScore < 1 || businessValueScore > 10) reasons.push("Business value must be a numeric score from 1 to 10.");
   if (!sectionHasContent(content, "Acceptance Criteria")) reasons.push("Acceptance criteria are missing or empty.");
   if (!sectionHasContent(content, "Tasks")) reasons.push("Tasks are missing or empty.");
-  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include priority, estimated work, and description.");
+  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include numeric priority, effort, business value, and description.");
   if (hasBlockingMissingItems(content)) reasons.push("Missing Before Implementation contains unresolved items.");
   if (content.includes("Missing item 1") || content.includes("Missing item 2")) reasons.push("Template placeholder missing items are still present.");
   return { ok: reasons.length === 0, score, reasons };
@@ -1165,6 +1224,27 @@ function sectionHasContent(content: string, heading: string): boolean {
   return body.length > 0;
 }
 
+function extractNumericSectionValue(content: string, heading: string): number | undefined {
+  const pattern = new RegExp(`##\\s+${escapeRegExp(heading)}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|\\n#\\s+|$)`, "i");
+  const body = content.match(pattern)?.[1] || "";
+  const searchable = body
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\b\d+\s*-\s*\d+\b/g, "");
+  const match = searchable.match(/\b\d+(?:\.\d+)?\b/);
+  if (!match) return undefined;
+  const value = Number(match[0]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function parseBoundedNumber(value: string | undefined, min: number, max: number): number | undefined {
+  if (!value) return undefined;
+  const match = value.match(/\b\d+(?:\.\d+)?\b/);
+  if (!match) return undefined;
+  const parsed = Number(match[0]);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) return undefined;
+  return parsed;
+}
+
 function tasksHaveRequiredFields(content: string): boolean {
   const tasksSection = content.match(/##\s+Tasks\s*\n([\s\S]*?)(?=\n##\s+|$)/i)?.[1] || "";
   const tasks: string[] = [];
@@ -1174,10 +1254,20 @@ function tasksHaveRequiredFields(content: string): boolean {
   if (tasks.length === 0) return false;
 
   return tasks.every((task) => {
-    return /Priority:\s*\S/i.test(task)
-      && /Estimated work:\s*\S/i.test(task)
+    const priority = extractTaskFieldNumber(task, "Priority");
+    const effort = extractTaskFieldNumber(task, "Effort");
+    const businessValue = extractTaskFieldNumber(task, "Business Value");
+    return priority !== undefined && priority >= 1 && priority <= 10
+      && effort !== undefined && effort > 0
+      && businessValue !== undefined && businessValue >= 1 && businessValue <= 10
       && /Description:\s*\S/i.test(task);
   });
+}
+
+function extractTaskFieldNumber(task: string, field: string): number | undefined {
+  const pattern = new RegExp(`${escapeRegExp(field)}(?:\\s*\\([^)]*\\))?:\\s*(\\d+(?:\\.\\d+)?)`, "i");
+  const value = Number(task.match(pattern)?.[1]);
+  return Number.isFinite(value) ? value : undefined;
 }
 
 function hasBlockingMissingItems(content: string): boolean {
@@ -1193,12 +1283,16 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function resolvePriority(ctx: ExtensionCommandContext, existingPriority: string | undefined): Promise<Priority> {
-  if (existingPriority === "high" || existingPriority === "medium" || existingPriority === "low") return existingPriority;
-  if (!ctx.hasUI) return "medium";
-  const selected = await ctx.ui.select("SpecForge priority", ["high", "medium", "low"]);
-  if (selected === "high" || selected === "medium" || selected === "low") return selected;
-  return "medium";
+async function resolvePriority(ctx: ExtensionCommandContext, existingPriority: string | undefined, content = ""): Promise<string> {
+  const metadataPriority = parseBoundedNumber(existingPriority, 1, 10);
+  if (metadataPriority !== undefined) return String(metadataPriority);
+
+  const sectionPriority = extractNumericSectionValue(content, "Priority");
+  if (sectionPriority !== undefined && sectionPriority >= 1 && sectionPriority <= 10) return String(sectionPriority);
+
+  if (!ctx.hasUI) return "5";
+  const selected = await ctx.ui.select("SpecForge numeric priority (1 low, 10 highest)", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  return parseBoundedNumber(String(selected || ""), 1, 10)?.toString() || "5";
 }
 
 function withUpdatedMetadata(content: string, id: string, updates: Partial<SpecMetadata>): string {
@@ -1208,7 +1302,7 @@ function withUpdatedMetadata(content: string, id: string, updates: Partial<SpecM
     ...current,
     id: current.id || id,
     status: updates.status || current.status || "ready",
-    priority: updates.priority || current.priority || "medium",
+    priority: updates.priority || current.priority || "5",
     readiness_score: updates.readiness_score || current.readiness_score || String(extractReadinessScore(content) || 0),
     depends_on: current.depends_on || [],
     created_at: updates.created_at || current.created_at || today(),
@@ -1281,7 +1375,7 @@ function buildPrioritizationReport(specs: ArchivedSpec[]): string {
   const sorted = [...open].sort((a, b) => scoreSpec(b, specs) - scoreSpec(a, specs));
   const next = sorted[0];
   const lines = sorted.map((spec, index) => {
-    return `${index + 1}. ${spec.id} (${spec.metadata.priority || "medium"}, ${spec.metadata.status || "unknown"}) - ${describeRecommendation(spec, specs)}`;
+    return `${index + 1}. ${spec.id} (priority ${spec.metadata.priority || "5"}/10, ${spec.metadata.status || "unknown"}) - ${describeRecommendation(spec, specs)}`;
   });
 
   return `Recommended Next Feature
@@ -1302,12 +1396,16 @@ function recommendNextSpec(specs: ArchivedSpec[]): ArchivedSpec | undefined {
 }
 
 function scoreSpec(spec: ArchivedSpec, allSpecs: ArchivedSpec[]): number {
-  const priorityScore = spec.metadata.priority === "high" ? 30 : spec.metadata.priority === "low" ? 10 : 20;
+  const priority = parseBoundedNumber(spec.metadata.priority, 1, 10) ?? 5;
+  const businessValue = extractNumericSectionValue(spec.content, "Business Value") ?? 5;
+  const effort = extractNumericSectionValue(spec.content, "Effort") ?? 5;
+  const valueScore = (priority * 3) + (businessValue * 3);
+  const effortPenalty = Math.min(Math.max(effort, 1), 13);
   const blockerScore = countDependents(spec.id, allSpecs) * 5;
   const statusScore = spec.metadata.status === "ready" ? 10 : spec.metadata.status === "in_progress" ? 5 : 0;
   const parsedReadiness = Number(spec.metadata.readiness_score || 0);
   const readinessScore = Number.isFinite(parsedReadiness) ? parsedReadiness : 0;
-  return priorityScore + blockerScore + statusScore + readinessScore;
+  return valueScore - effortPenalty + blockerScore + statusScore + readinessScore;
 }
 
 function countDependents(id: string, specs: ArchivedSpec[]): number {
@@ -1316,7 +1414,12 @@ function countDependents(id: string, specs: ArchivedSpec[]): number {
 
 function describeRecommendation(spec: ArchivedSpec, specs: ArchivedSpec[]): string {
   const blockers = countDependents(spec.id, specs);
-  const reasons = [`${spec.metadata.priority || "medium"} priority`];
+  const priority = parseBoundedNumber(spec.metadata.priority, 1, 10) ?? 5;
+  const businessValue = extractNumericSectionValue(spec.content, "Business Value");
+  const effort = extractNumericSectionValue(spec.content, "Effort");
+  const reasons = [`priority ${priority}/10`];
+  if (businessValue !== undefined) reasons.push(`business value ${businessValue}/10`);
+  if (effort !== undefined) reasons.push(`effort ${effort} story points`);
   if (blockers > 0) reasons.push(`blocks ${blockers} feature${blockers === 1 ? "" : "s"}`);
   if (spec.metadata.readiness_score) reasons.push(`readiness ${spec.metadata.readiness_score}/10`);
   return reasons.join(", ");
