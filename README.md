@@ -19,6 +19,7 @@ See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and imp
 - `/spec-new <spec-name>`
 - `/spec-refine <generated-feature-id>`
 - `/spec-review <generated-feature-id>`
+- `/spec-fix <generated-feature-id>`
 - `/spec-promote <generated-feature-id>`
 - `/spec-prioritize`
 - `/spec-start <generated-feature-id>`

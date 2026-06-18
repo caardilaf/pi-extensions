@@ -334,6 +334,75 @@ Before scoring, inspect additional relevant repository files if needed so the au
     },
   });
 
+  pi.registerCommand("spec-fix", {
+    description: "Fix a refined specification using /spec-review notes",
+    handler: async (args, ctx) => {
+      const id = parseFeatureId(args);
+      if (!id) return showUsage(ctx, "/spec-fix <generated-feature-id>");
+      await initializeSpecForge(ctx);
+
+      const paths = getSpecPaths(ctx.cwd);
+      const refinedPath = join(paths.refined, `${id}.md`);
+      if (!(await exists(refinedPath))) return fail(ctx, `Refined spec not found: ${refinedPath}`);
+
+      const [refinedSpec, projectContext, freshContext] = await Promise.all([
+        readFile(refinedPath, "utf8"),
+        readFile(paths.context, "utf8").catch(() => ""),
+        scanProjectForContext(ctx.cwd),
+      ]);
+      const stage = detectStageFromContext(projectContext);
+      await updateSpecTracking(ctx.cwd, id, "refined", refinedSpec);
+
+      pi.sendUserMessage(`You are running SpecForge /spec-fix for feature id: ${id}.
+
+Goal:
+Fix this refined specification in place using the review notes and Implementation Readiness feedback produced by /spec-review:
+${refinedPath}
+
+Role:
+Act like a technical product owner applying a senior software engineer auditor's review feedback. Use fresh repository context to resolve concrete gaps, but keep the spec constrained to one feature.
+
+Rules:
+- Address the existing review notes, low-scoring rubric items, and Missing Before Implementation items in the refined specification.
+- Preserve ONE SPEC = ONE FEATURE. If the review notes reveal multiple features, stop and recommend a split instead of broadening this spec.
+- Project stage is ${stage}; right-size fixes to this maturity level.
+- Keep or restore this feature specification structure:
+
+${SPEC_TEMPLATE}
+
+- Ensure Priority, Effort, and Business Value are filled.
+- Ensure at least one implementation task exists.
+- Ensure every task has Priority, Estimated work, and Description.
+- Strengthen acceptance criteria so implementation can be verified.
+- Remove resolved review placeholders or stale missing items.
+- Do not promote or move the spec. After fixing, the user should run /spec-review ${id} again.
+
+Project context:
+
+${projectContext || "(No PROJECT_CONTEXT.md content available.)"}
+
+Fresh repository context gathered for this fix:
+
+Top-level entries:
+${formatBullets(freshContext.topLevelEntries)}
+
+Notable project files:
+${formatBullets(freshContext.notableFiles)}
+
+Sample file inventory (limited):
+${formatBullets(freshContext.files)}
+
+Selected file snippets:
+${formatSnippets(freshContext.snippets)}
+
+Current refined specification with review notes:
+
+${refinedSpec}
+
+Now update ${refinedPath} in place to address the review feedback. Do not promote the spec.`);
+    },
+  });
+
   pi.registerCommand("spec-promote", {
     description: "Promote a reviewed specification into archived_specs",
     handler: async (args, ctx) => {
