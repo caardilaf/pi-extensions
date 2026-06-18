@@ -1,57 +1,16 @@
 # SpecForge
 
-> From idea to implementation-ready feature specifications.
+SpecForge is a **pi extension** for specification-first feature work. It turns raw ideas into small, reviewed, implementation-ready specs before handing them to a coding agent.
 
-SpecForge is a **pi extension** that adds a specification-first workflow to a project. It helps engineers turn raw feature ideas into small, reviewed, implementation-ready specifications that can be handed to a coding agent.
-
-SpecForge is designed for two audiences:
-
-- **Users** who want a guided workflow for planning features before implementation.
-- **Extension authors** who want a clear blueprint for implementing the workflow as a pi extension.
-
----
-
-## What SpecForge Does
-
-SpecForge acts like a technical product owner during refinement and a senior software engineer auditor during review. It does **not** generate production code directly.
-
-Its purpose is to:
-
-- Ask the right questions.
-- Identify missing requirements.
-- Avoid over-engineering.
-- Right-size solutions according to project maturity.
-- Produce implementation-ready feature specifications.
-- Hand approved specifications to an implementation agent only after planning is complete.
-
----
-
-## Core Rule
+Core rule:
 
 > **ONE SPEC = ONE FEATURE**
 
-A specification must represent one deliverable feature.
-
-Good one-feature names:
-
-- `semantic-search`
-- `oauth-authentication`
-- `pdf-upload`
-- `anomaly-detection-endpoint`
-
-`/spec-new` turns those names into generated ids such as `a1b2c3-semantic-search`.
-
-Bad multi-feature ideas:
-
-- `Build AI Platform`
-- `Build Customer Support System`
-- `Create Full Backend`
-
-If a raw idea contains multiple features, SpecForge should recommend splitting it before refinement continues.
+If an idea contains multiple features, split it before refinement.
 
 ---
 
-## User Workflow
+## Workflow
 
 ```text
 Raw Idea
@@ -72,9 +31,9 @@ specs/refined_specs/<generated-feature-id>.md
 /spec-review <generated-feature-id>
    │
    ▼
-Readiness score + review notes
+Readiness score + comments in "Missing Before Implementation"
    │
-   ├── if review is not successful ──► /spec-fix <generated-feature-id> ──► /spec-review <generated-feature-id>
+   ├── if not ready ──► /spec-fix <generated-feature-id> ──► /spec-review <generated-feature-id>
    │
    ▼
 /spec-promote <generated-feature-id>
@@ -95,7 +54,7 @@ Implementation work
 /spec-complete <generated-feature-id>
 ```
 
-Optional project-level commands can be used at any time:
+Optional anytime:
 
 ```text
 /spec-status
@@ -105,9 +64,9 @@ Optional project-level commands can be used at any time:
 
 ---
 
-## Repository Files
+## Files
 
-SpecForge stores all workflow state in Markdown files inside the repository.
+SpecForge stores all state in Markdown:
 
 ```text
 specs/
@@ -118,677 +77,162 @@ specs/
 └── archived_specs/
 ```
 
-`/spec-init` creates this SpecForge file structure and prepares `PROJECT_CONTEXT.md` plus `SPEC_TRACKING.md`. It asks for the project maturity (`EARLY`, `MEDIUM`, or `ADVANCED`) and stores it in `PROJECT_CONTEXT.md`. In codebase mode it also starts a read-only project review so useful context can be captured. It does **not** initialize or modify an application project: no `uv init`, no `pyproject.toml`, no package manager setup, and no dependency installation.
-
-### `specs/PROJECT_CONTEXT.md`
-
-The lightweight project memory used during refinement and review.
-
-It should contain project-wide context only:
-
-- Session type: `codebase` or `planning`.
-- Project maturity/stage.
-- Technology stack.
-- Libraries and frameworks.
-- Tooling.
-- Architecture and implementation patterns.
-- Coding style and conventions.
-- Testing approach.
-- Engineering principles.
-- Important architectural decisions that affect future features.
-
-Feature-specific decisions belong in promoted feature specifications, not in `PROJECT_CONTEXT.md`.
-
-### `specs/SPEC_TRACKING.md`
-
-A lightweight dashboard with specification statistics and a table of feature specs.
-
-It is created by `/spec-init` and updated by lifecycle commands:
-
-| Command | Tracking Status |
-| --- | --- |
-| `/spec-new <spec-name>` | 📝 Raw |
-| `/spec-refine <generated-feature-id>` | 🔧 Refined |
-| `/spec-fix <generated-feature-id>` | 🔧 Refined |
-| `/spec-promote <generated-feature-id>` | ✅ Approved |
-| `/spec-complete <generated-feature-id>` | 🎉 Completed |
-
-Example:
-
-```md
-# SPEC_TRACKING
-
-## Summary
-
-| Status | Count |
-| --- | ---: |
-| 📝 Raw | 1 |
-| 🔧 Refined | 1 |
-| ✅ Approved | 2 |
-| 🎉 Completed | 3 |
-| **Total** | **7** |
-
-## Specifications
-
-| Spec ID | Title | Description | Status | Updated |
-| --- | --- | --- | --- | --- |
-| a1b2c3-semantic-search | Semantic Search | Add semantic search to indexed documents. | ✅ Approved | 2026-06-18 |
-```
-
-### `specs/raw_specs/`
-
-Contains early feature ideas created by `/spec-new` or added manually.
-
-This directory may be tracked by git so early planning history can be reviewed.
-
-### `specs/refined_specs/`
-
-Contains specifications under refinement or review.
-
-This directory may be tracked by git so refinement and review history can be reviewed.
-
-### `specs/archived_specs/`
-
-Contains approved specifications.
-
-This directory may be committed to git and acts as the source of truth for planned, active, and completed feature work.
+All SpecForge files may be tracked by git. `/spec-init` does not scaffold application projects, install dependencies, or create app config files.
 
 ---
 
-## Git Rules
+## Project Context
 
-All SpecForge files may be tracked by git, including raw and refined specifications.
+`specs/PROJECT_CONTEXT.md` contains project-wide memory used during refinement and review:
 
-```text
-specs/PROJECT_CONTEXT.md
-specs/SPEC_TRACKING.md
-specs/raw_specs/
-specs/refined_specs/
-specs/archived_specs/
-```
+- `SESSION_TYPE`: `codebase` or `planning`
+- `STAGE`: `EARLY`, `MEDIUM`, or `ADVANCED`
+- stack, tooling, frameworks, architecture, style, testing, constraints, open questions, principles
 
-`/spec-init` does not add SpecForge paths to `.gitignore`. If it finds old SpecForge ignore entries for `specs/raw_specs/` or `specs/refined_specs/`, it removes those exact entries so the files can be tracked.
+Project maturity:
 
----
-
-## Project Context Template
-
-`specs/PROJECT_CONTEXT.md` should start small and evolve only when project-wide decisions are discovered.
-
-```md
-# PROJECT_CONTEXT
-
-## SESSION_TYPE
-codebase
-
-## STAGE
-EARLY
-
-## PROJECT SUMMARY
-This SpecForge workspace is attached to an implementation codebase. Project insights should be filled by /spec-init or /spec-refresh after a read-only review.
-
-## STACK
-- Unknown
-
-## TOOLING
-- Unknown
-
-## LIBRARIES AND FRAMEWORKS
-- Unknown
-
-## ARCHITECTURE AND PATTERNS
-- Unknown
-
-## CODING STYLE
-- Unknown
-
-## TESTING APPROACH
-- Unknown
-
-## CONSTRAINTS AND OPEN QUESTIONS
-- Unknown
-
-## PRINCIPLES
-- One Spec = One Feature
-- Avoid Over-Engineering
-```
-
-Planning-only sessions use:
-
-```md
-# PROJECT_CONTEXT
-
-## SESSION_TYPE
-planning
-
-## STAGE
-EARLY
-
-## PROJECT SUMMARY
-This SpecForge workspace is being used for planning. No implementation codebase has been reviewed yet.
-
-## STACK
-- Unknown
-
-## TOOLING
-- Unknown
-
-## LIBRARIES AND FRAMEWORKS
-- Unknown
-
-## ARCHITECTURE AND PATTERNS
-- Unknown
-
-## CODING STYLE
-- Unknown
-
-## TESTING APPROACH
-- Unknown
-
-## CONSTRAINTS AND OPEN QUESTIONS
-- Unknown
-
-## PRINCIPLES
-- One Spec = One Feature
-- Avoid Over-Engineering
-- Treat technical choices as provisional until validated
-```
-
-### Project Maturity / Stage Values
-
-| Stage | Meaning | Planning Style |
+| Stage | Meaning | Planning style |
 | --- | --- | --- |
-| `EARLY` | New or small project | Prefer simple, direct solutions |
-| `MEDIUM` | Growing project with established patterns | Preserve consistency and manage dependencies |
-| `ADVANCED` | Mature project with scale, compliance, or complex dependencies | Require stronger technical validation |
+| `EARLY` | New/small project | Prefer simple direct solutions |
+| `MEDIUM` | Growing project with patterns | Preserve consistency and dependencies |
+| `ADVANCED` | Mature/scale/compliance/complexity | Require stronger validation |
 
-`/spec-init` and `/spec-refresh` ask for this maturity and update `## STAGE` accordingly.
+`/spec-init` and `/spec-refresh` ask for maturity and update `## STAGE`.
 
-### Update Rules
-
-`PROJECT_CONTEXT.md` may be updated when a project-wide decision is discovered, either manually or during a later command such as `/spec-promote`.
-
-`/spec-init` creates the file if it is missing and asks for project maturity. In normal codebase mode, it starts a read-only review to fill useful insights. If `PROJECT_CONTEXT.md` already exists, `/spec-init` asks for confirmation before appending a timestamped review section. Use `/spec-refresh` for intentional re-review later; refresh also asks for maturity and preserves `SESSION_TYPE: planning` for planning-only workspaces.
-
-Do not add feature-specific implementation details.
+Planning-only workspaces use `SESSION_TYPE: planning`. `/spec-refresh` must preserve planning mode and must not convert it to `codebase`.
 
 ---
 
 ## Commands
 
-The extension should register the following pi slash commands with `pi.registerCommand()`.
+### `/spec-init [--plan]`
 
-### `/spec-init`
+Creates or repairs SpecForge structure and tracking.
 
-Initialize or repair SpecForge in the current repository.
-
-Modes:
-
-```bash
-/spec-init
-/spec-init --plan
-```
-
-Default codebase mode responsibilities:
-
-1. Detect an existing SpecForge installation.
-2. Create missing SpecForge folders and files.
-3. Remove old SpecForge ignore entries from `.gitignore` if present so specs can be tracked.
-4. Generate `specs/PROJECT_CONTEXT.md` if it does not exist.
-5. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
-6. Generate `specs/SPEC_TRACKING.md` if it does not exist.
-7. Gather a bounded, read-only repository summary.
-8. Ask the agent to review the project and update `PROJECT_CONTEXT.md` with technologies, libraries, tooling, coding style, architecture patterns, testing approach, conventions, constraints, and open questions.
-
-Planning mode responsibilities:
-
-1. Create or repair the same SpecForge folders.
-2. Remove old SpecForge ignore entries from `.gitignore` if present so specs can be tracked.
-3. Generate `PROJECT_CONTEXT.md` with `SESSION_TYPE` set to `planning` if it does not exist.
-4. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
-5. Generate `SPEC_TRACKING.md` if it does not exist.
-6. Skip codebase scanning and implementation-stack assumptions.
-
-Non-responsibilities:
-
-- Do not run `uv init` or create a UV project.
-- Do not create `pyproject.toml`, `package.json`, or other application project files.
-- Do not install dependencies.
-- Do not run package-manager, framework, or language scaffolding commands.
-
-`/spec-init` must be idempotent.
-
-It may be executed safely:
-
-- On a brand-new project.
-- On an existing project.
-- After cloning a repository.
-- After a partial SpecForge installation.
-
-For filesystem setup, it should create missing SpecForge assets only:
-
-```text
-specs/
-specs/raw_specs/
-specs/refined_specs/
-specs/archived_specs/
-specs/PROJECT_CONTEXT.md
-specs/SPEC_TRACKING.md
-```
-
-Existing files must never be overwritten. If `PROJECT_CONTEXT.md` already exists, `/spec-init` should append a timestamped review only after user confirmation.
-
-Recommended repository inspection is read-only and bounded. It may inspect file names and selected project files, but it must not mutate application code or project configuration.
-
----
+- Default mode: initializes for a codebase, asks for maturity, performs a bounded read-only project review, and updates `PROJECT_CONTEXT.md`.
+- `--plan`: initializes planning-only mode, asks for maturity, skips codebase scanning and implementation-stack assumptions.
+- Existing files are not overwritten.
+- Existing `PROJECT_CONTEXT.md` is appended to only after confirmation.
 
 ### `/spec-refresh`
 
-Refresh `specs/PROJECT_CONTEXT.md` from an intentional read-only project review.
+Refreshes `PROJECT_CONTEXT.md` from an intentional read-only review.
 
-```bash
-/spec-refresh
-```
+- Asks for maturity and updates `## STAGE`.
+- Preserves manual notes.
+- Appends a timestamped review summary.
+- Preserves `SESSION_TYPE: planning` for planning-only repositories.
+- Does not modify application files.
 
-Responsibilities:
+### `/spec-new <spec-name>`
 
-1. Ensure the SpecForge file structure and `SPEC_TRACKING.md` exist.
-2. Ask for project maturity and set `## STAGE` to `EARLY`, `MEDIUM`, or `ADVANCED`.
-3. Gather a bounded repository summary.
-4. Ask the agent to inspect additional relevant files if useful.
-5. Update `PROJECT_CONTEXT.md` in place while preserving valuable manual notes.
-6. Append a timestamped review summary.
+Creates `specs/raw_specs/<generated-feature-id>.md` from a human-readable feature name and updates tracking to `📝 Raw`.
 
-Use `/spec-refresh` when the codebase has changed enough that project-level context may be stale. If `PROJECT_CONTEXT.md` is marked as `SESSION_TYPE` `planning`, `/spec-refresh` must preserve planning mode and must not convert it to `codebase`.
+Example:
 
-Safety rules:
-
-- Do not scaffold or initialize an application project.
-- Do not install dependencies.
-- Do not add feature-specific details.
-- Keep the review read-only except for edits to `PROJECT_CONTEXT.md`.
-- Preserve `SESSION_TYPE: planning` for planning-only/spec-only workspaces; do not convert them to `codebase` during refresh.
-
----
-
-### `/spec-new`
-
-Create a new raw feature specification from a human-readable name.
-
-```bash
+```text
 /spec-new semantic-search
-/spec-new Semantic Search
+# creates specs/raw_specs/a1b2c3-semantic-search.md
 ```
 
-Creates a raw spec whose file name combines a unique short identifier prefix with a slugified name:
+### `/spec-refine <generated-feature-id>`
 
-```text
-specs/raw_specs/a1b2c3-semantic-search.md
-```
+Turns a raw idea into a refined spec in `specs/refined_specs/`.
 
-The generated id is shown in the command output and should be used for subsequent commands:
+The agent should:
 
-```bash
-/spec-refine a1b2c3-semantic-search
-```
+- act as a technical product owner;
+- enforce one feature per spec;
+- ask targeted clarification questions based on maturity;
+- define numeric Priority (1-4), Effort, and Business Value;
+- create actionable tasks;
+- use the feature spec template;
+- update tracking to `🔧 Refined`.
 
-Template:
+Question budget:
 
-```md
-# Semantic Search
-
-## Problem
-
-## Expected Behavior
-
-## Notes
-```
-
-Rules:
-
-- The spec name is slugified automatically.
-- SpecForge prefixes a unique short identifier to avoid collisions.
-- The command should initialize SpecForge first if required assets are missing.
-- The command updates `specs/SPEC_TRACKING.md` to `📝 Raw`.
-
----
-
-### `/spec-refine`
-
-Convert a raw feature idea into a refined specification.
-
-```bash
-/spec-refine a1b2c3-semantic-search
-```
-
-Input:
-
-```text
-specs/raw_specs/a1b2c3-semantic-search.md
-```
-
-Output:
-
-```text
-specs/refined_specs/a1b2c3-semantic-search.md
-```
-
-Responsibilities:
-
-- Act like a technical product owner.
-- Read `PROJECT_CONTEXT.md`.
-- Determine the project maturity/stage.
-- Ask targeted clarification questions.
-- Remove ambiguity.
-- Define feature-level numeric Priority (1-10), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
-- Break implementation into at least one task with numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
-- Detect over-engineering.
-- Suggest simpler alternatives.
-- Produce a refined specification using the feature specification template.
-- Mark `specs/SPEC_TRACKING.md` as `🔧 Refined` when refinement starts.
-
-### Question Budget
-
-| Project Maturity | Maximum Questions |
+| Maturity | Max questions |
 | --- | ---: |
 | `EARLY` | 5 |
 | `MEDIUM` | 8 |
 | `ADVANCED` | 12 |
 
-If the raw idea is already clear, SpecForge may ask fewer questions.
+### `/spec-review <generated-feature-id>`
 
-If multiple features are detected, SpecForge should stop and recommend a split instead of refining a multi-feature specification.
-
----
-
-### `/spec-review`
-
-Review a refined specification for implementation readiness.
-
-```bash
-/spec-review a1b2c3-semantic-search
-```
-
-Input:
-
-```text
-specs/refined_specs/a1b2c3-semantic-search.md
-```
-
-Role:
-
-- Act like a senior software engineer auditor.
-- Review with fresh repository context, not only the existing `PROJECT_CONTEXT.md`.
-- Use fresh context for the audit only; do not refresh `PROJECT_CONTEXT.md` during `/spec-review`.
-- Calibrate strictness and technical depth to the current project maturity/stage.
-
-Checks:
-
-- Scope clarity.
-- Missing requirements.
-- Feature-level numeric Priority (1-10), Effort (story points), and Business Value (1-10).
-- At least one implementation task exists.
-- Every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description, regardless of the task heading text.
-- Acceptance criteria.
-- Security concerns.
-- Data concerns.
-- Scalability assumptions appropriate for the project maturity/stage.
-- Dependencies and blockers.
-- Over-engineering risks.
-- Whether the spec still represents exactly one feature.
-
-Output:
-
-- The refined story/specification content is not rewritten by review.
-- Review comments are added only under `### Missing Before Implementation` in the Implementation Readiness section; review notes should not be written anywhere else.
-- An implementation readiness score from `0/10` to `10/10`.
-- A list of missing items, if any.
-
-### Implementation Readiness Rubric
-
-Readiness measures whether an implementation agent can begin work without another planning session.
-
-| Criterion | Score |
-| --- | ---: |
-| Problem Defined | 1 |
-| Scope Defined | 1 |
-| Out of Scope Defined | 1 |
-| Functional Requirements Defined | 2 |
-| Acceptance Criteria Defined | 2 |
-| Tasks Defined with Numeric Priority/Effort/Business Value | 1 |
-| Dependencies Defined | 1 |
-| Technical Direction Defined | 1 |
-| **Total** | **10** |
-
-### Readiness Levels
-
-| Score | Level | Result |
-| ---: | --- | --- |
-| `0–3` | Not Ready | Promotion denied |
-| `4–6` | Needs Refinement | Promotion denied |
-| `7` | Ready with Caution | Promotion denied by default |
-| `8–10` | Implementation Ready | Promotion allowed |
-
----
-
-### `/spec-fix`
-
-Fix a refined specification using the review notes produced by `/spec-review`.
-
-```bash
-/spec-fix a1b2c3-semantic-search
-```
-
-Input and output:
-
-```text
-specs/refined_specs/a1b2c3-semantic-search.md
-```
-
-Role:
-
-- Act like a technical product owner applying a senior software engineer auditor's feedback.
-- Use fresh repository context to resolve concrete gaps.
-- Keep the spec constrained to exactly one feature.
-
-Responsibilities:
-
-1. Read the refined specification and existing review notes.
-2. Address low-scoring readiness items and `Missing Before Implementation` items.
-3. Implement every actionable comment listed under `Missing Before Implementation` in the relevant refined specification sections.
-4. Fill or improve numeric Priority (1-10), Effort (story points), Business Value (1-10), tasks, and acceptance criteria.
-5. Keep at least one task and ensure every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
-6. Remove stale placeholders or resolved review notes and replace resolved missing items with `- None`.
-7. Keep the spec in `refined_specs/`; do not promote it.
-8. Mark `specs/SPEC_TRACKING.md` as `🔧 Refined`.
-
-After running `/spec-fix`, run `/spec-review <generated-feature-id>` again before promotion.
-
----
-
-### `/spec-promote`
-
-Promote a reviewed specification into the archived source of truth.
-
-```bash
-/spec-promote a1b2c3-semantic-search
-```
-
-Input:
-
-```text
-specs/refined_specs/a1b2c3-semantic-search.md
-```
-
-Output:
-
-```text
-specs/archived_specs/a1b2c3-semantic-search.md
-```
-
-Responsibilities:
-
-1. Validate completeness.
-2. Refuse promotion if readiness is below `8/10`.
-3. Refuse promotion if blocking open questions remain.
-4. Refuse promotion if the specification contains more than one feature.
-5. Add or normalize metadata front matter.
-6. Move the file into `archived_specs/`.
-7. Update `specs/SPEC_TRACKING.md` to `✅ Approved`.
-8. Update `PROJECT_CONTEXT.md` only when project-wide decisions were introduced.
-
-Promotion is allowed only when:
-
-- `readiness_score >= 8`.
-- No blocking open questions exist.
-- Numeric Priority (1-10), Effort (story points), and Business Value (1-10) are defined.
-- Acceptance criteria are defined.
-- At least one task exists.
-- Tasks are scoped and actionable.
-- Every task includes numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description, regardless of the task heading text.
-- The specification represents exactly one feature.
-
----
-
-### `/spec-prioritize`
-
-Analyze archived specifications that are not completed and recommend implementation order.
-
-```bash
-/spec-prioritize
-```
-
-Responsibilities:
-
-- Read all files in `specs/archived_specs/`.
-- Ignore specs with `status: completed`.
-- Recalculate priority suggestions.
-- Detect blockers.
-- Recommend the next feature to implement.
-
-Example output:
-
-```text
-Recommended Next Feature
-
-oauth-authentication
-
-Reason:
-- Priority 9/10
-- Business value 8/10
-- Effort 3 story points
-- Blocks 3 features
-```
-
----
-
-### `/spec-start`
-
-Begin implementation of a promoted feature.
-
-```bash
-/spec-start a1b2c3-semantic-search
-```
-
-Input:
-
-```text
-specs/archived_specs/a1b2c3-semantic-search.md
-```
-
-Responsibilities:
-
-1. Verify the spec has `status: ready`.
-2. Update metadata to `status: in_progress`.
-3. Set `started_at` if empty.
-4. Generate an implementation handoff prompt.
-5. Send the handoff to pi for implementation.
+Reviews a refined spec for implementation readiness.
 
 Important rule:
 
-> Planning is complete. No additional discovery should occur during implementation unless the archived specification explicitly allows it.
+> `/spec-review` **must not rewrite or fix the refined story/spec content**. It only updates the `Implementation Readiness` section and puts comments/actionable gaps under `### Missing Before Implementation`.
 
-The implementation agent must follow:
+Checks include scope, requirements, numeric planning fields, tasks, acceptance criteria, security/data/scalability concerns, dependencies, blockers, over-engineering, and one-feature scope.
 
-- Scope.
-- Out of Scope.
-- Tasks.
-- Acceptance Criteria.
+Promotion requires readiness score `>= 8/10` and no blocking open questions.
 
-Example metadata update:
+### `/spec-fix <generated-feature-id>`
 
-```yaml
-status: in_progress
-started_at: 2026-06-16
-```
+Applies `/spec-review` feedback to the refined spec.
 
----
+The agent should:
 
-### `/spec-complete`
+- implement every actionable item in `Missing Before Implementation`;
+- update the relevant refined spec sections;
+- preserve one-feature scope;
+- ensure numeric Priority (1-4), Effort, Business Value, tasks, and acceptance criteria are complete;
+- replace resolved missing items with `- None`;
+- not promote, move, or run review automatically.
 
-Mark implementation as completed.
+After fixing, run `/spec-review <id>` again.
 
-```bash
-/spec-complete a1b2c3-semantic-search
-```
+### `/spec-promote <generated-feature-id>`
 
-Responsibilities:
+Moves a reviewed refined spec into `specs/archived_specs/` and adds metadata.
 
-1. Verify the archived spec exists.
-2. Confirm the feature is implemented.
-3. Update metadata to `status: completed`.
-4. Set `completed_at`.
-5. Update `specs/SPEC_TRACKING.md` to `🎉 Completed`.
+Promotion is denied unless:
 
-Example metadata update:
+- readiness score is `>= 8/10`;
+- `Missing Before Implementation` is empty/`None`;
+- numeric Priority (1-4), Effort, and Business Value are present;
+- acceptance criteria exist;
+- at least one task exists;
+- every task has numeric Priority (1-4), Effort, Business Value, and Description;
+- the spec represents exactly one feature.
 
-```yaml
-status: completed
-completed_at: 2026-06-18
-```
+Updates tracking to `✅ Approved`.
 
----
+### `/spec-prioritize`
+
+Reads open archived specs and recommends implementation order using priority, business value, effort, blockers, status, and readiness.
+
+### `/spec-start <generated-feature-id>`
+
+Starts implementation of an archived spec.
+
+- Requires `status: ready`.
+- Updates metadata to `status: in_progress` and sets `started_at`.
+- Sends an implementation handoff to pi.
+
+Implementation must follow the archived spec’s Scope, Out of Scope, Tasks, and Acceptance Criteria. No extra discovery unless explicitly allowed by the spec.
+
+### `/spec-complete <generated-feature-id>`
+
+Marks an archived spec completed, sets `completed_at`, and updates tracking to `🎉 Completed`.
 
 ### `/spec-status`
 
-Generate a project summary from archived specifications.
-
-```bash
-/spec-status
-```
-
-Example output:
-
-```text
-TOTAL FEATURES: 15
-
-READY: 4
-IN PROGRESS: 2
-BLOCKED: 1
-COMPLETED: 8
-
-COMPLETION: 53%
-```
-
-The status report should show:
-
-- Total archived features.
-- Counts by status.
-- Blocked work.
-- Remaining work.
-- Recommended next feature.
+Shows archived feature totals, counts by status, completion percentage, blocked work, remaining work, and recommended next feature.
 
 ---
 
-## Feature Specification Template
+## Feature Spec Template
 
-Every refined and archived specification should follow this structure. This is the structure `/spec-refine` asks the agent to use when producing refined specs.
+Every refined/archived spec should follow this structure:
 
 ```md
 ## Problem Statement
 
 ## Priority
-Numeric priority score (1-10):
+Numeric priority score (1-4):
 
 ## Effort
 Story points (1, 2, 3, 5, 8, 13):
@@ -812,7 +256,7 @@ Numeric business value score (1-10):
 
 ### Task 1
 
-- Priority (1-10):
+- Priority (1-4):
 - Effort (story points):
 - Business Value (1-10):
 - Description:
@@ -845,20 +289,28 @@ Numeric business value score (1-10):
 ### Missing Before Implementation
 
 - Missing item 1
-- Missing item 2
 ```
+
+Readiness levels:
+
+| Score | Level | Result |
+| ---: | --- | --- |
+| `0–3` | Not Ready | Promotion denied |
+| `4–6` | Needs Refinement | Promotion denied |
+| `7` | Ready with Caution | Promotion denied by default |
+| `8–10` | Implementation Ready | Promotion allowed |
 
 ---
 
-## Archived Specification Metadata
+## Archived Spec Metadata
 
-Every archived specification must contain YAML front matter.
+Archived specs must have YAML front matter:
 
 ```yaml
 ---
 id: a1b2c3-semantic-search
 status: ready
-priority: 8
+priority: 3
 readiness_score: 9
 depends_on:
   - d4e5f6-oauth-authentication
@@ -868,55 +320,28 @@ completed_at:
 ---
 ```
 
-### Status Values
+Status values:
 
 | Status | Meaning |
 | --- | --- |
 | `ready` | Approved and ready for implementation |
-| `in_progress` | Implementation has started |
-| `blocked` | Cannot proceed until dependencies or questions are resolved |
-| `completed` | Implementation is complete |
+| `in_progress` | Implementation started |
+| `blocked` | Waiting on dependencies/questions |
+| `completed` | Implementation complete |
 
-### Numeric Planning Values
+Numeric planning fields:
 
 | Field | Scale | Meaning |
 | --- | --- | --- |
-| `priority` | `1`–`10` | Overall urgency/order signal; `10` is highest priority |
-| `Effort` | Story points such as `1`, `2`, `3`, `5`, `8`, `13` | Relative implementation size/complexity |
-| `Business Value` | `1`–`10` | Expected user/business impact; `10` is highest value |
+| `priority` / Priority | `1–4` | Urgency/order signal; `4` highest |
+| Effort | story points such as `1,2,3,5,8,13` | Relative size/complexity |
+| Business Value | `1–10` | Expected impact; `10` highest |
 
 ---
 
-## Source of Truth
+## Development / Loading
 
-Archived specifications are the source of truth.
-
-All implementation progress is derived from:
-
-```text
-specs/archived_specs/
-```
-
-`specs/SPEC_TRACKING.md` is a human-friendly dashboard maintained by SpecForge commands; if it ever becomes stale, archived specifications remain authoritative.
-
-No external database is required.
-
-Future integrations such as Azure DevOps, Jira, or GitHub Issues should be generated from archived specifications instead of replacing them.
-
----
-
-## pi Extension Implementation Guide
-
-SpecForge should be implemented as a TypeScript pi extension.
-
-Recommended project-local layout:
-
-```text
-.pi/extensions/spec-forge/
-└── index.ts
-```
-
-Recommended repository layout while developing this extension:
+Recommended local layout:
 
 ```text
 spec-forge/
@@ -924,145 +349,40 @@ spec-forge/
 └── index.ts
 ```
 
-For quick local testing:
+Run locally:
 
 ```bash
 pi -e ./spec-forge/index.ts
 ```
 
-For project-local auto-discovery:
+Project-local auto-discovery:
 
 ```bash
 mkdir -p .pi/extensions/spec-forge
 cp spec-forge/index.ts .pi/extensions/spec-forge/index.ts
 ```
 
-Then run this inside pi:
-
-```text
-/reload
-```
-
-For global auto-discovery:
+Global auto-discovery:
 
 ```bash
 mkdir -p ~/.pi/agent/extensions/spec-forge
 cp spec-forge/index.ts ~/.pi/agent/extensions/spec-forge/index.ts
 ```
 
-Then run this inside pi:
+Then run inside pi:
 
 ```text
 /reload
 ```
 
-### Extension Responsibilities
-
-The extension should:
-
-- Register slash commands with `pi.registerCommand()`.
-- Use Node file APIs to create, move, and update specification files.
-- Keep `/spec-init` and `/spec-refresh` read-only with respect to application files; they must not scaffold application projects or package-manager projects.
-- Use `ctx.ui` for confirmations and guided questions when UI is available.
-- Use `pi.sendUserMessage()` when a command needs the agent to perform reasoning or generate a refined document.
-- Avoid long-lived background resources.
-- Avoid overwriting user content without confirmation.
-- Keep archived specifications as the durable source of truth for implementation progress.
-
-### Command Registration Sketch
-
-```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-export default function (pi: ExtensionAPI) {
-  pi.registerCommand("spec-init", {
-    description: "Initialize SpecForge and create PROJECT_CONTEXT.md insights",
-    handler: async (args, ctx) => {
-      // /spec-init creates the spec structure, asks for maturity, and starts a read-only context review.
-      // /spec-init --plan creates planning-session context, asks for maturity, and skips codebase scanning.
-      // Do not run uv/npm/pnpm/yarn or create application project files.
-      ctx.ui.notify("SpecForge initialized", "info");
-    },
-  });
-
-  pi.registerCommand("spec-refresh", {
-    description: "Refresh PROJECT_CONTEXT.md from a read-only project review",
-    handler: async (_args, ctx) => {
-      // Ask for maturity, gather project summary, preserve planning SESSION_TYPE, and ask pi to update PROJECT_CONTEXT.md.
-    },
-  });
-
-  pi.registerCommand("spec-new", {
-    description: "Create a raw SpecForge feature idea",
-    handler: async (args, ctx) => {
-      // Slugify spec name, prefix a unique short id, and create specs/raw_specs/<id>.md.
-    },
-  });
-
-  pi.registerCommand("spec-refine", {
-    description: "Refine a raw feature idea into an implementation-ready specification",
-    handler: async (args, ctx) => {
-      // Read raw spec and project context, ask questions, then send a guided prompt to pi.
-      pi.sendUserMessage(`Refine the SpecForge feature spec: ${args}`);
-    },
-  });
-
-  pi.registerCommand("spec-fix", {
-    description: "Fix a refined specification using /spec-review notes",
-    handler: async (args, ctx) => {
-      // Read refined spec review notes and ask pi to update the refined spec in place.
-      pi.sendUserMessage(`Fix the SpecForge feature spec: ${args}`);
-    },
-  });
-}
-```
-
-### Recommended Command Strategy
-
-Use deterministic file operations for commands that only move or update files:
-
-- `/spec-new`
-- `/spec-promote` after validation
-- `/spec-start` metadata updates
-- `/spec-complete`
-- `/spec-status`
-
-Use deterministic setup plus agent assistance for project-context commands:
-
-- `/spec-init`
-- `/spec-init --plan`
-- `/spec-refresh`
-
-Use the agent for reasoning-heavy commands:
-
-- `/spec-refine`
-- `/spec-review`
-- `/spec-fix`
-- `/spec-prioritize`
-- Implementation handoff generated by `/spec-start`
-
-### Safety Rules for the Extension
-
-- Never overwrite an existing spec unless the user confirms.
-- Never promote a spec with readiness below `8/10`.
-- Never silently delete raw or refined specs; moving to archive is allowed only during promotion.
-- Allow all SpecForge files to be tracked by git, including raw and refined specs.
-- Never update `PROJECT_CONTEXT.md` with feature-only details.
-- Never use `/spec-init` or `/spec-refresh` to scaffold projects or install dependencies.
-- If command arguments are missing, show usage and ask for the missing value.
-- If `ctx.hasUI` is false, avoid interactive prompts and print actionable instructions instead.
-
 ---
 
-## Future Extensions
+## Extension Safety Rules
 
-Possible future commands:
-
-```bash
-/spec-export-azure
-/spec-export-jira
-/spec-export-github
-/spec-plan
-```
-
-These commands should consume archived specifications and create project-management artifacts automatically.
+- Never overwrite user content without confirmation.
+- Never promote readiness below `8/10`.
+- Never silently delete raw/refined specs.
+- Never scaffold projects or install dependencies from `/spec-init` or `/spec-refresh`.
+- Never update `PROJECT_CONTEXT.md` with feature-only details.
+- Keep archived specs as the durable source of truth.
+- Use `SPEC_TRACKING.md` only as a human-friendly dashboard.

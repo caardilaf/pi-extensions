@@ -18,7 +18,7 @@ function buildRawTemplate(title: string): string {
 const SPEC_TEMPLATE = `## Problem Statement
 
 ## Priority
-Numeric priority score (1-10):
+Numeric priority score (1-4):
 
 ## Effort
 Story points (1, 2, 3, 5, 8, 13):
@@ -42,7 +42,7 @@ Numeric business value score (1-10):
 
 ### Task 1
 
-- Priority (1-10):
+- Priority (1-4):
 - Effort (story points):
 - Business Value (1-10):
 - Description:
@@ -252,9 +252,9 @@ Rules:
 - Project maturity/stage is ${stage}; ask at most ${questionBudget} targeted clarification questions.
 - If the information is already sufficient, ask fewer questions or no questions.
 - Avoid over-engineering and right-size the solution to the project maturity.
-- Define feature-level numeric Priority (1-10), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
+- Define feature-level numeric Priority (1-4), Effort (story points: 1, 2, 3, 5, 8, 13), and Business Value (1-10).
 - Include at least one implementation task.
-- For every task, include numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
+- For every task, include numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
 - Remove unused task placeholders; add more task sections only when needed.
 - Use this exact feature specification structure:
 
@@ -301,9 +301,9 @@ ${refinedPath}
 Checks:
 - Scope clarity.
 - Missing requirements.
-- Feature-level numeric Priority (1-10), Effort (story points), and Business Value (1-10).
+- Feature-level numeric Priority (1-4), Effort (story points), and Business Value (1-10).
 - At least one implementation task exists.
-- Every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
+- Every task has numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
 - Acceptance criteria.
 - Security concerns.
 - Data concerns.
@@ -388,9 +388,9 @@ Rules:
 ${SPEC_TEMPLATE}
 
 - Implement every actionable comment listed under ### Missing Before Implementation by updating the relevant refined specification sections.
-- Ensure feature-level Priority (1-10), Effort (story points), and Business Value (1-10) are numeric.
+- Ensure feature-level Priority (1-4), Effort (story points), and Business Value (1-10) are numeric.
 - Ensure at least one implementation task exists.
-- Ensure every task has numeric Priority (1-10), Effort (story points), Business Value (1-10), and Description.
+- Ensure every task has numeric Priority (1-4), Effort (story points), Business Value (1-10), and Description.
 - Strengthen acceptance criteria so implementation can be verified.
 - After implementing the Missing Before Implementation comments, replace that list with "- None" so the next /spec-review can audit the updated spec from a clean state.
 - Do not run /spec-review yourself, promote, or move the spec. After fixing, the user should run /spec-review ${id} again.
@@ -1172,7 +1172,7 @@ function buildFrontmatter(metadata: SpecMetadata): string {
   return `---
 id: ${metadata.id || "unknown"}
 status: ${metadata.status || "ready"}
-priority: ${metadata.priority || "5"}
+priority: ${metadata.priority || "2"}
 readiness_score: ${metadata.readiness_score || "0"}
 ${dependsOn}
 created_at: ${metadata.created_at || today()}
@@ -1188,12 +1188,12 @@ function validatePromotableSpec(content: string): { ok: boolean; score: number; 
   const priorityScore = extractNumericSectionValue(content, "Priority");
   const effortScore = extractNumericSectionValue(content, "Effort");
   const businessValueScore = extractNumericSectionValue(content, "Business Value");
-  if (priorityScore === undefined || priorityScore < 1 || priorityScore > 10) reasons.push("Priority must be a numeric score from 1 to 10.");
+  if (priorityScore === undefined || priorityScore < 1 || priorityScore > 4) reasons.push("Priority must be a numeric score from 1 to 4.");
   if (effortScore === undefined || effortScore <= 0) reasons.push("Effort must be numeric story points.");
   if (businessValueScore === undefined || businessValueScore < 1 || businessValueScore > 10) reasons.push("Business value must be a numeric score from 1 to 10.");
   if (!sectionHasContent(content, "Acceptance Criteria")) reasons.push("Acceptance criteria are missing or empty.");
   if (!sectionHasContent(content, "Tasks")) reasons.push("Tasks are missing or empty.");
-  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include numeric priority, effort, business value, and description.");
+  if (!tasksHaveRequiredFields(content)) reasons.push("At least one task is required, and every task must include numeric priority (1-4), effort, business value, and description.");
   if (hasBlockingMissingItems(content)) reasons.push("Missing Before Implementation contains unresolved items.");
   if (content.includes("Missing item 1") || content.includes("Missing item 2")) reasons.push("Template placeholder missing items are still present.");
   return { ok: reasons.length === 0, score, reasons };
@@ -1257,7 +1257,7 @@ function tasksHaveRequiredFields(content: string): boolean {
     const priority = extractTaskFieldNumber(task, "Priority");
     const effort = extractTaskFieldNumber(task, "Effort");
     const businessValue = extractTaskFieldNumber(task, "Business Value");
-    return priority !== undefined && priority >= 1 && priority <= 10
+    return priority !== undefined && priority >= 1 && priority <= 4
       && effort !== undefined && effort > 0
       && businessValue !== undefined && businessValue >= 1 && businessValue <= 10
       && /Description:\s*\S/i.test(task);
@@ -1284,15 +1284,15 @@ function escapeRegExp(value: string): string {
 }
 
 async function resolvePriority(ctx: ExtensionCommandContext, existingPriority: string | undefined, content = ""): Promise<string> {
-  const metadataPriority = parseBoundedNumber(existingPriority, 1, 10);
+  const metadataPriority = parseBoundedNumber(existingPriority, 1, 4);
   if (metadataPriority !== undefined) return String(metadataPriority);
 
   const sectionPriority = extractNumericSectionValue(content, "Priority");
-  if (sectionPriority !== undefined && sectionPriority >= 1 && sectionPriority <= 10) return String(sectionPriority);
+  if (sectionPriority !== undefined && sectionPriority >= 1 && sectionPriority <= 4) return String(sectionPriority);
 
-  if (!ctx.hasUI) return "5";
-  const selected = await ctx.ui.select("SpecForge numeric priority (1 low, 10 highest)", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
-  return parseBoundedNumber(String(selected || ""), 1, 10)?.toString() || "5";
+  if (!ctx.hasUI) return "2";
+  const selected = await ctx.ui.select("SpecForge numeric priority (1 low, 4 highest)", ["1", "2", "3", "4"]);
+  return parseBoundedNumber(String(selected || ""), 1, 4)?.toString() || "2";
 }
 
 function withUpdatedMetadata(content: string, id: string, updates: Partial<SpecMetadata>): string {
@@ -1302,7 +1302,7 @@ function withUpdatedMetadata(content: string, id: string, updates: Partial<SpecM
     ...current,
     id: current.id || id,
     status: updates.status || current.status || "ready",
-    priority: updates.priority || current.priority || "5",
+    priority: updates.priority || current.priority || "2",
     readiness_score: updates.readiness_score || current.readiness_score || String(extractReadinessScore(content) || 0),
     depends_on: current.depends_on || [],
     created_at: updates.created_at || current.created_at || today(),
@@ -1375,7 +1375,7 @@ function buildPrioritizationReport(specs: ArchivedSpec[]): string {
   const sorted = [...open].sort((a, b) => scoreSpec(b, specs) - scoreSpec(a, specs));
   const next = sorted[0];
   const lines = sorted.map((spec, index) => {
-    return `${index + 1}. ${spec.id} (priority ${spec.metadata.priority || "5"}/10, ${spec.metadata.status || "unknown"}) - ${describeRecommendation(spec, specs)}`;
+    return `${index + 1}. ${spec.id} (priority ${spec.metadata.priority || "2"}/4, ${spec.metadata.status || "unknown"}) - ${describeRecommendation(spec, specs)}`;
   });
 
   return `Recommended Next Feature
@@ -1396,10 +1396,10 @@ function recommendNextSpec(specs: ArchivedSpec[]): ArchivedSpec | undefined {
 }
 
 function scoreSpec(spec: ArchivedSpec, allSpecs: ArchivedSpec[]): number {
-  const priority = parseBoundedNumber(spec.metadata.priority, 1, 10) ?? 5;
+  const priority = parseBoundedNumber(spec.metadata.priority, 1, 4) ?? 2;
   const businessValue = extractNumericSectionValue(spec.content, "Business Value") ?? 5;
   const effort = extractNumericSectionValue(spec.content, "Effort") ?? 5;
-  const valueScore = (priority * 3) + (businessValue * 3);
+  const valueScore = (priority * 7.5) + (businessValue * 3);
   const effortPenalty = Math.min(Math.max(effort, 1), 13);
   const blockerScore = countDependents(spec.id, allSpecs) * 5;
   const statusScore = spec.metadata.status === "ready" ? 10 : spec.metadata.status === "in_progress" ? 5 : 0;
@@ -1414,10 +1414,10 @@ function countDependents(id: string, specs: ArchivedSpec[]): number {
 
 function describeRecommendation(spec: ArchivedSpec, specs: ArchivedSpec[]): string {
   const blockers = countDependents(spec.id, specs);
-  const priority = parseBoundedNumber(spec.metadata.priority, 1, 10) ?? 5;
+  const priority = parseBoundedNumber(spec.metadata.priority, 1, 4) ?? 2;
   const businessValue = extractNumericSectionValue(spec.content, "Business Value");
   const effort = extractNumericSectionValue(spec.content, "Effort");
-  const reasons = [`priority ${priority}/10`];
+  const reasons = [`priority ${priority}/4`];
   if (businessValue !== undefined) reasons.push(`business value ${businessValue}/10`);
   if (effort !== undefined) reasons.push(`effort ${effort} story points`);
   if (blockers > 0) reasons.push(`blocks ${blockers} feature${blockers === 1 ? "" : "s"}`);
