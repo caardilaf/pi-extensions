@@ -74,7 +74,7 @@ specs/refined_specs/<generated-feature-id>.md
    ▼
 Readiness score + review notes
    │
-   ├── if fixes are needed ──► /spec-fix <generated-feature-id> ──► /spec-review <generated-feature-id>
+   ├── if review is not successful ──► /spec-fix <generated-feature-id> ──► /spec-review <generated-feature-id>
    │
    ▼
 /spec-promote <generated-feature-id>
