@@ -96,6 +96,7 @@ Optional project-level commands can be used at any time:
 ```text
 /spec-status
 /spec-prioritize
+/spec-refresh
 ```
 
 ---
@@ -112,15 +113,22 @@ specs/
 └── archived_specs/
 ```
 
+`/spec-init` creates this SpecForge file structure, updates the related `.gitignore` entries, and prepares `PROJECT_CONTEXT.md`. In codebase mode it also starts a read-only project review so useful context can be captured. It does **not** initialize or modify an application project: no `uv init`, no `pyproject.toml`, no package manager setup, and no dependency installation.
+
 ### `specs/PROJECT_CONTEXT.md`
 
 The lightweight project memory used during refinement and review.
 
 It should contain project-wide context only:
 
+- Session type: `codebase` or `planning`.
 - Project stage.
 - Technology stack.
+- Libraries and frameworks.
 - Tooling.
+- Architecture and implementation patterns.
+- Coding style and conventions.
+- Testing approach.
 - Engineering principles.
 - Important architectural decisions that affect future features.
 
@@ -171,22 +179,80 @@ specs/archived_specs/
 ```md
 # PROJECT_CONTEXT
 
+## SESSION_TYPE
+codebase
+
 ## STAGE
 EARLY
 
+## PROJECT SUMMARY
+This SpecForge workspace is attached to an implementation codebase. Project insights should be filled by /spec-init or /spec-refresh after a read-only review.
+
 ## STACK
-- Python
-- FastAPI
-- PostgreSQL
+- Unknown
 
 ## TOOLING
-- UV
-- Docker
-- Pytest
+- Unknown
+
+## LIBRARIES AND FRAMEWORKS
+- Unknown
+
+## ARCHITECTURE AND PATTERNS
+- Unknown
+
+## CODING STYLE
+- Unknown
+
+## TESTING APPROACH
+- Unknown
+
+## CONSTRAINTS AND OPEN QUESTIONS
+- Unknown
 
 ## PRINCIPLES
 - One Spec = One Feature
 - Avoid Over-Engineering
+```
+
+Planning-only sessions use:
+
+```md
+# PROJECT_CONTEXT
+
+## SESSION_TYPE
+planning
+
+## STAGE
+EARLY
+
+## PROJECT SUMMARY
+This SpecForge workspace is being used for planning. No implementation codebase has been reviewed yet.
+
+## STACK
+- Unknown
+
+## TOOLING
+- Unknown
+
+## LIBRARIES AND FRAMEWORKS
+- Unknown
+
+## ARCHITECTURE AND PATTERNS
+- Unknown
+
+## CODING STYLE
+- Unknown
+
+## TESTING APPROACH
+- Unknown
+
+## CONSTRAINTS AND OPEN QUESTIONS
+- Unknown
+
+## PRINCIPLES
+- One Spec = One Feature
+- Avoid Over-Engineering
+- Treat technical choices as provisional until validated
 ```
 
 ### Project Stage Values
@@ -199,10 +265,9 @@ EARLY
 
 ### Update Rules
 
-`PROJECT_CONTEXT.md` may be updated when:
+`PROJECT_CONTEXT.md` may be updated when a project-wide decision is discovered, either manually or during a later command such as `/spec-promote`.
 
-- `/spec-init` detects technologies already present in the repository.
-- `/spec-promote` introduces an important project-wide architectural decision.
+`/spec-init` creates the file if it is missing. In normal codebase mode, it starts a read-only review to fill useful insights. If `PROJECT_CONTEXT.md` already exists, `/spec-init` asks for confirmation before appending a timestamped review section. Use `/spec-refresh` for intentional re-review later.
 
 Do not add feature-specific implementation details.
 
@@ -216,21 +281,36 @@ The extension should register the following pi slash commands with `pi.registerC
 
 Initialize or repair SpecForge in the current repository.
 
-Responsibilities:
-
-1. Inspect the repository.
-2. Detect the current project stage when possible.
-3. Detect existing technologies and tooling.
-4. Detect an existing SpecForge installation.
-5. Create missing folders and files.
-6. Update `.gitignore` without removing existing entries.
-7. Generate `specs/PROJECT_CONTEXT.md` if it does not exist.
-
-`/spec-init` must be idempotent.
+Modes:
 
 ```bash
 /spec-init
+/spec-init --plan
 ```
+
+Default codebase mode responsibilities:
+
+1. Detect an existing SpecForge installation.
+2. Create missing SpecForge folders and files.
+3. Update `.gitignore` without removing existing entries.
+4. Generate `specs/PROJECT_CONTEXT.md` if it does not exist.
+5. Gather a bounded, read-only repository summary.
+6. Ask the agent to review the project and update `PROJECT_CONTEXT.md` with technologies, libraries, tooling, coding style, architecture patterns, testing approach, conventions, constraints, and open questions.
+
+Planning mode responsibilities:
+
+1. Create or repair the same SpecForge folders and `.gitignore` entries.
+2. Generate `PROJECT_CONTEXT.md` with `SESSION_TYPE` set to `planning` if it does not exist.
+3. Skip codebase scanning and implementation-stack assumptions.
+
+Non-responsibilities:
+
+- Do not run `uv init` or create a UV project.
+- Do not create `pyproject.toml`, `package.json`, or other application project files.
+- Do not install dependencies.
+- Do not run package-manager, framework, or language scaffolding commands.
+
+`/spec-init` must be idempotent.
 
 It may be executed safely:
 
@@ -239,7 +319,7 @@ It may be executed safely:
 - After cloning a repository.
 - After a partial SpecForge installation.
 
-It should create missing assets only:
+For filesystem setup, it should create missing SpecForge assets only:
 
 ```text
 specs/
@@ -249,16 +329,36 @@ specs/archived_specs/
 specs/PROJECT_CONTEXT.md
 ```
 
-Existing files must never be overwritten.
+Existing files must never be overwritten. If `PROJECT_CONTEXT.md` already exists, `/spec-init` should append a timestamped review only after user confirmation.
 
-Recommended repository inspection:
+Recommended repository inspection is read-only and bounded. It may inspect file names and selected project files, but it must not mutate application code or project configuration.
 
-- Git repository status.
-- Existing language and framework files.
-- Package managers and lockfiles.
-- Test tooling.
-- Docker files.
-- Existing SpecForge folders.
+---
+
+### `/spec-refresh`
+
+Refresh `specs/PROJECT_CONTEXT.md` from an intentional read-only project review.
+
+```bash
+/spec-refresh
+```
+
+Responsibilities:
+
+1. Ensure the SpecForge file structure exists.
+2. Gather a bounded repository summary.
+3. Ask the agent to inspect additional relevant files if useful.
+4. Update `PROJECT_CONTEXT.md` in place while preserving valuable manual notes.
+5. Append a timestamped review summary.
+
+Use `/spec-refresh` when the codebase has changed enough that project-level context may be stale.
+
+Safety rules:
+
+- Do not scaffold or initialize an application project.
+- Do not install dependencies.
+- Do not add feature-specific details.
+- Keep the review read-only except for edits to `PROJECT_CONTEXT.md`.
 
 ---
 
@@ -737,7 +837,7 @@ The extension should:
 
 - Register slash commands with `pi.registerCommand()`.
 - Use Node file APIs to create, move, and update specification files.
-- Use `pi.exec()` for repository inspection where shell commands are helpful.
+- Keep `/spec-init` and `/spec-refresh` read-only with respect to application files; they must not scaffold application projects or package-manager projects.
 - Use `ctx.ui` for confirmations and guided questions when UI is available.
 - Use `pi.sendUserMessage()` when a command needs the agent to perform reasoning or generate a refined document.
 - Avoid long-lived background resources.
@@ -751,10 +851,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("spec-init", {
-    description: "Initialize or repair SpecForge in this repository",
-    handler: async (_args, ctx) => {
-      // Create specs folders, PROJECT_CONTEXT.md, and .gitignore entries.
+    description: "Initialize SpecForge and create PROJECT_CONTEXT.md insights",
+    handler: async (args, ctx) => {
+      // /spec-init creates the spec structure and starts a read-only context review.
+      // /spec-init --plan creates planning-session context and skips codebase scanning.
+      // Do not run uv/npm/pnpm/yarn or create application project files.
       ctx.ui.notify("SpecForge initialized", "info");
+    },
+  });
+
+  pi.registerCommand("spec-refresh", {
+    description: "Refresh PROJECT_CONTEXT.md from a read-only project review",
+    handler: async (_args, ctx) => {
+      // Gather project summary and ask pi to update PROJECT_CONTEXT.md.
     },
   });
 
@@ -779,12 +888,17 @@ export default function (pi: ExtensionAPI) {
 
 Use deterministic file operations for commands that only move or update files:
 
-- `/spec-init`
 - `/spec-new`
 - `/spec-promote` after validation
 - `/spec-start` metadata updates
 - `/spec-complete`
 - `/spec-status`
+
+Use deterministic setup plus agent assistance for project-context commands:
+
+- `/spec-init`
+- `/spec-init --plan`
+- `/spec-refresh`
 
 Use the agent for reasoning-heavy commands:
 
@@ -800,6 +914,7 @@ Use the agent for reasoning-heavy commands:
 - Never silently delete raw or refined specs; moving to archive is allowed only during promotion.
 - Never add raw or refined specs to git tracking by default.
 - Never update `PROJECT_CONTEXT.md` with feature-only details.
+- Never use `/spec-init` or `/spec-refresh` to scaffold projects or install dependencies.
 - If command arguments are missing, show usage and ask for the missing value.
 - If `ctx.hasUI` is false, avoid interactive prompts and print actionable instructions instead.
 

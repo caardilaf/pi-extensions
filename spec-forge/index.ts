@@ -97,6 +97,16 @@ type ArchivedSpec = {
   metadata: SpecMetadata;
 };
 
+type InitMode = "codebase" | "planning";
+type ContextUpdateMode = "created" | "append" | "refresh";
+
+type ProjectScanSummary = {
+  topLevelEntries: string[];
+  files: string[];
+  notableFiles: string[];
+  snippets: Array<{ path: string; content: string }>;
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("spec-forge", (message, _options, theme) => {
     const title = theme.fg("accent", theme.bold("SpecForge"));
@@ -104,10 +114,52 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("spec-init", {
-    description: "Initialize or repair SpecForge in this repository",
-    handler: async (_args, ctx) => {
-      const result = await initializeSpecForge(ctx);
+    description: "Initialize SpecForge and create PROJECT_CONTEXT.md insights",
+    handler: async (args, ctx) => {
+      const mode = parseInitMode(args);
+      if (!mode) return showUsage(ctx, "/spec-init [--plan]");
+
+      const paths = getSpecPaths(ctx.cwd);
+      const contextExisted = await exists(paths.context);
+      const result = await initializeSpecForge(ctx, { mode });
+
+      if (mode === "planning") {
+        if (contextExisted) {
+          const content = await readFile(paths.context, "utf8").catch(() => "");
+          if (!isPlanningContext(content)) {
+            const updated = await confirmContextAppend(ctx, "Mark existing PROJECT_CONTEXT.md as a planning session?");
+            if (updated) {
+              await markPlanningContext(paths.context);
+              result.push(`Marked ${paths.context} as a planning session`);
+            } else {
+              result.push(`Kept existing ${paths.context} unchanged`);
+            }
+          }
+        }
+        showReport(pi, ctx, "Initialized or repaired SpecForge planning structure", result.join("\n"));
+        return;
+      }
+
       showReport(pi, ctx, "Initialized or repaired SpecForge", result.join("\n"));
+
+      if (contextExisted) {
+        const shouldAppend = await confirmContextAppend(ctx, "PROJECT_CONTEXT.md already exists. Append a timestamped project review?");
+        if (!shouldAppend) return;
+      }
+
+      const scan = await scanProjectForContext(ctx.cwd);
+      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, contextExisted ? "append" : "created"));
+    },
+  });
+
+  pi.registerCommand("spec-refresh", {
+    description: "Refresh PROJECT_CONTEXT.md from a read-only project review",
+    handler: async (_args, ctx) => {
+      const paths = getSpecPaths(ctx.cwd);
+      await initializeSpecForge(ctx, { mode: "codebase" });
+      const scan = await scanProjectForContext(ctx.cwd);
+      showReport(pi, ctx, "Started SpecForge context refresh", `Reviewing project context for ${paths.context}`);
+      pi.sendUserMessage(buildProjectContextReviewPrompt(paths.context, scan, "refresh"));
     },
   });
 
@@ -378,8 +430,9 @@ function getSpecPaths(root: string): SpecPaths {
   };
 }
 
-async function initializeSpecForge(ctx: ExtensionCommandContext): Promise<string[]> {
+async function initializeSpecForge(ctx: ExtensionCommandContext, options: { mode?: InitMode } = {}): Promise<string[]> {
   const paths = getSpecPaths(ctx.cwd);
+  const mode = options.mode ?? "codebase";
   const actions: string[] = [];
 
   for (const dir of [paths.specs, paths.raw, paths.refined, paths.archived]) {
@@ -390,8 +443,8 @@ async function initializeSpecForge(ctx: ExtensionCommandContext): Promise<string
   }
 
   if (!(await exists(paths.context))) {
-    const detection = await detectProjectContext(ctx.cwd);
-    await writeFile(paths.context, buildProjectContext(detection.stage, detection.stack, detection.tooling), "utf8");
+    const context = mode === "planning" ? buildPlanningProjectContext() : buildCodebaseProjectContext();
+    await writeFile(paths.context, context, "utf8");
     actions.push(`Created ${paths.context}`);
   }
 
@@ -402,56 +455,54 @@ async function initializeSpecForge(ctx: ExtensionCommandContext): Promise<string
   return actions;
 }
 
-async function detectProjectContext(root: string): Promise<{ stage: Stage; stack: string[]; tooling: string[] }> {
-  const stack = new Set<string>();
-  const tooling = new Set<string>();
-
-  if (await exists(join(root, "package.json"))) {
-    stack.add("Node.js");
-    const pkg = await readFile(join(root, "package.json"), "utf8").catch(() => "");
-    if (pkg.includes("typescript")) stack.add("TypeScript");
-    if (pkg.includes("react")) stack.add("React");
-    if (pkg.includes("vite")) tooling.add("Vite");
-    if (pkg.includes("vitest")) tooling.add("Vitest");
-    if (pkg.includes("jest")) tooling.add("Jest");
-  }
-  if (await exists(join(root, "pyproject.toml"))) stack.add("Python");
-  if (await exists(join(root, "requirements.txt"))) stack.add("Python");
-  if (await exists(join(root, "Dockerfile"))) tooling.add("Docker");
-  if (await exists(join(root, "docker-compose.yml")) || await exists(join(root, "compose.yml"))) tooling.add("Docker Compose");
-  if (await exists(join(root, "uv.lock"))) tooling.add("UV");
-  if (await exists(join(root, "package-lock.json"))) tooling.add("npm");
-  if (await exists(join(root, "pnpm-lock.yaml"))) tooling.add("pnpm");
-  if (await exists(join(root, "yarn.lock"))) tooling.add("Yarn");
-
-  return {
-    stage: "EARLY",
-    stack: Array.from(stack).sort(),
-    tooling: Array.from(tooling).sort(),
-  };
+function buildCodebaseProjectContext(): string {
+  return buildProjectContext("codebase", "This SpecForge workspace is attached to an implementation codebase. Project insights should be filled by /spec-init or /spec-refresh after a read-only review.", ["Avoid Over-Engineering"]);
 }
 
-function buildProjectContext(stage: Stage, stack: string[], tooling: string[]): string {
+function buildPlanningProjectContext(): string {
+  return buildProjectContext("planning", "This SpecForge workspace is being used for planning. No implementation codebase has been reviewed yet.", [
+    "Avoid Over-Engineering",
+    "Treat technical choices as provisional until validated",
+  ]);
+}
+
+function buildProjectContext(sessionType: InitMode, summary: string, extraPrinciples: string[]): string {
   return `# PROJECT_CONTEXT
 
+## SESSION_TYPE
+${sessionType}
+
 ## STAGE
-${stage}
+EARLY
+
+## PROJECT SUMMARY
+${summary}
 
 ## STACK
-${formatList(stack)}
+- Unknown
 
 ## TOOLING
-${formatList(tooling)}
+- Unknown
+
+## LIBRARIES AND FRAMEWORKS
+- Unknown
+
+## ARCHITECTURE AND PATTERNS
+- Unknown
+
+## CODING STYLE
+- Unknown
+
+## TESTING APPROACH
+- Unknown
+
+## CONSTRAINTS AND OPEN QUESTIONS
+- Unknown
 
 ## PRINCIPLES
 - One Spec = One Feature
-- Avoid Over-Engineering
+${extraPrinciples.map((principle) => `- ${principle}`).join("\n")}
 `;
-}
-
-function formatList(items: string[]): string {
-  if (items.length === 0) return "- Unknown";
-  return items.map((item) => `- ${item}`).join("\n");
 }
 
 async function ensureGitignore(path: string): Promise<boolean> {
@@ -466,6 +517,181 @@ async function ensureGitignore(path: string): Promise<boolean> {
     .filter((line): line is string => Boolean(line));
   await writeFile(path, `${current}${prefix}${entries.join("\n")}\n`, "utf8");
   return true;
+}
+
+function parseInitMode(args: string): InitMode | undefined {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "codebase";
+  if (tokens.length === 1 && tokens[0] === "--plan") return "planning";
+  return undefined;
+}
+
+function isPlanningContext(content: string): boolean {
+  return /##\s+SESSION_TYPE\s*\n\s*planning\s*$/im.test(content) || /planning session/i.test(content);
+}
+
+async function confirmContextAppend(ctx: ExtensionCommandContext, message: string): Promise<boolean> {
+  if (!ctx.hasUI) {
+    await fail(ctx, `${message}\nRun /spec-refresh to intentionally update PROJECT_CONTEXT.md, or update the file manually.`);
+    return false;
+  }
+  return ctx.ui.confirm("SpecForge", message);
+}
+
+async function markPlanningContext(path: string): Promise<void> {
+  const current = await readFile(path, "utf8").catch(() => "");
+  const withSessionType = /##\s+SESSION_TYPE\s*\n[^\n]*/i.test(current)
+    ? current.replace(/##\s+SESSION_TYPE\s*\n[^\n]*/i, "## SESSION_TYPE\nplanning")
+    : `${current}${current.length > 0 && !current.endsWith("\n") ? "\n" : ""}\n## SESSION_TYPE\nplanning\n`;
+  const prefix = withSessionType.length > 0 && !withSessionType.endsWith("\n") ? "\n" : "";
+  await writeFile(path, `${withSessionType}${prefix}\n## Planning Session Note - ${today()}\n\nThis SpecForge workspace is being used as a planning session. No implementation codebase was reviewed by /spec-init --plan.\n`, "utf8");
+}
+
+async function scanProjectForContext(root: string): Promise<ProjectScanSummary> {
+  const topLevelEntries = await listTopLevelEntries(root);
+  const files = await collectProjectFiles(root);
+  const notableFiles = files.filter(isNotableProjectFile).slice(0, 80);
+  const snippets = await readProjectSnippets(root, notableFiles);
+  return {
+    topLevelEntries,
+    files: files.slice(0, 250),
+    notableFiles,
+    snippets,
+  };
+}
+
+async function listTopLevelEntries(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  return entries
+    .filter((entry) => !shouldIgnoreEntry(entry.name))
+    .map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`)
+    .sort();
+}
+
+async function collectProjectFiles(root: string, relativeDir = "", depth = 0, collected: string[] = []): Promise<string[]> {
+  if (depth > 4 || collected.length >= 300) return collected;
+
+  const dir = join(root, relativeDir);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (shouldIgnoreEntry(entry.name)) continue;
+    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      await collectProjectFiles(root, relativePath, depth + 1, collected);
+    } else if (entry.isFile()) {
+      collected.push(relativePath);
+      if (collected.length >= 300) break;
+    }
+  }
+
+  return collected;
+}
+
+function shouldIgnoreEntry(name: string): boolean {
+  return new Set([
+    ".git",
+    ".hg",
+    ".svn",
+    ".cache",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "target",
+    "__pycache__",
+    "specs",
+  ]).has(name);
+}
+
+function isNotableProjectFile(path: string): boolean {
+  const fileName = path.split("/").pop() || path;
+  return /^(README|Dockerfile|Makefile|Gemfile|Rakefile|Pipfile)(\..*)?$/i.test(fileName)
+    || /^(package|tsconfig|jsconfig|pyproject|requirements|setup|go|Cargo|composer|pom|build\.gradle|settings\.gradle|deno|bunfig)\.(json|toml|txt|py|mod|xml|kts|gradle)$/i.test(fileName)
+    || /^(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|bun\.lock|Cargo\.lock|Pipfile\.lock)$/i.test(fileName)
+    || /^(eslint\.config|biome|prettier\.config|vite\.config|next\.config|tailwind\.config|vitest\.config|jest\.config|pytest|ruff|mypy)\./i.test(fileName)
+    || /^docker-compose\.(ya?ml)$/i.test(fileName)
+    || /^compose\.(ya?ml)$/i.test(fileName)
+    || /^\.?(eslintrc|prettierrc|editorconfig)$/i.test(fileName);
+}
+
+function isLockFile(path: string): boolean {
+  const fileName = path.split("/").pop() || path;
+  return /(?:^|[-.])(lock)$/i.test(fileName) || /lock\.(json|ya?ml)$/i.test(fileName);
+}
+
+async function readProjectSnippets(root: string, notableFiles: string[]): Promise<Array<{ path: string; content: string }>> {
+  const snippets: Array<{ path: string; content: string }> = [];
+  for (const path of notableFiles.filter((file) => !isLockFile(file)).slice(0, 12)) {
+    const content = await readFile(join(root, path), "utf8").catch(() => "");
+    if (!content.trim()) continue;
+    snippets.push({
+      path,
+      content: truncate(content, 2500),
+    });
+  }
+  return snippets;
+}
+
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}\n... (truncated)`;
+}
+
+function buildProjectContextReviewPrompt(contextPath: string, scan: ProjectScanSummary, mode: ContextUpdateMode): string {
+  const modeInstructions = mode === "created"
+    ? "PROJECT_CONTEXT.md was just created from a minimal template. Update it in place with useful, concise insights from the project review."
+    : mode === "append"
+      ? "PROJECT_CONTEXT.md already existed. Do not rewrite or remove existing content. Append a timestamped project review section with concise insights and recommended context updates."
+      : "Refresh PROJECT_CONTEXT.md intentionally. Preserve valuable manual notes, update stale insights, and append a timestamped project review summary.";
+
+  return `You are running SpecForge ${mode === "refresh" ? "/spec-refresh" : "/spec-init"}.
+
+Goal:
+Create valuable project-level insights for:
+${contextPath}
+
+Mode:
+${modeInstructions}
+
+Rules:
+- Perform a read-only review of the repository.
+- Do not create or modify application project files.
+- Do not run project scaffolding commands such as uv init, npm init, pnpm init, yarn init, cargo init, go mod init, etc.
+- Do not install dependencies.
+- Keep PROJECT_CONTEXT.md project-wide; do not add feature-specific implementation details.
+- Capture technologies, libraries/frameworks, tooling, architecture patterns, coding style, testing approach, conventions, constraints, and open questions.
+- If this is a planning-only/spec-only repository, set SESSION_TYPE to planning or clearly state that no codebase was reviewed.
+
+Initial repository summary gathered by the extension:
+
+Top-level entries:
+${formatBullets(scan.topLevelEntries)}
+
+Notable project files:
+${formatBullets(scan.notableFiles)}
+
+Sample file inventory (limited):
+${formatBullets(scan.files)}
+
+Selected file snippets:
+${formatSnippets(scan.snippets)}
+
+Now inspect additional files if useful, then update ${contextPath} according to the mode instructions.`;
+}
+
+function formatBullets(items: string[]): string {
+  if (items.length === 0) return "- None detected";
+  return items.map((item) => `- ${item}`).join("\n");
+}
+
+function formatSnippets(snippets: Array<{ path: string; content: string }>): string {
+  if (snippets.length === 0) return "No snippets available.";
+  return snippets.map((snippet) => `--- ${snippet.path} ---\n${snippet.content}`).join("\n\n");
 }
 
 function parseFeatureId(args: string): string | undefined {
