@@ -6,7 +6,7 @@ Useful pi extensions that fit my workflow and hopefully support yours. 🫡
 
 ### SpecForge
 
-`spec-forge/` contains a pi extension for a specification-first feature workflow. It helps you plan one feature at a time: create an idea, refine it, review it, fix gaps, approve it, and hand it off for implementation. It keeps the process in Markdown files, supports planning-only sessions, uses numeric agile-style planning fields, and never scaffolds or installs application dependencies.
+`spec-forge/` contains a pi extension for a specification-first feature workflow. It helps you plan one feature at a time: create an idea, refine it, review it, fix gaps, approve it, optionally export it to Azure DevOps, and hand it off for implementation. It keeps the process in Markdown files, supports planning-only sessions, uses numeric agile-style planning fields, and never scaffolds or installs application dependencies.
 
 See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and implementation guide.
 
@@ -20,6 +20,7 @@ See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and imp
 - `/spec-fix [generated-feature-id]` apply review gaps before running review again; omit the id to select from refined specs.
 - `/spec-promote [generated-feature-id]` approve a ready refined spec into archived specs; omit the id to select from refined specs.
 - `/spec-prioritize` recommend implementation order for approved specs.
+- `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]` export an archived spec to Azure DevOps as a User Story with child Tasks; requires `az login`, a valid parent Feature id, and no duplicate User Story under that Feature.
 - `/spec-start [generated-feature-id]` start implementation from an approved spec; omit the id to select from ready archived specs.
 - `/spec-complete [generated-feature-id]` mark an implemented spec as complete; omit the id to select from in-progress archived specs.
 - `/spec-status` show archived spec progress and recommended next work.

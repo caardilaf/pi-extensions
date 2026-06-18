@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -132,6 +133,33 @@ type ProjectScanSummary = {
 type SpecSelectionOption = {
   id: string;
   label: string;
+};
+
+type AzureExportArgs = {
+  parentId: string;
+  specQuery?: string;
+};
+
+type AzureWorkItem = {
+  id?: number;
+  fields?: Record<string, unknown>;
+};
+
+type ParsedSpecTask = {
+  heading: string;
+  title: string;
+  body: string;
+  description: string;
+  priority?: number;
+  effort?: number;
+};
+
+type AzureWorkItemCreateOptions = {
+  type: "User Story" | "Task";
+  title: string;
+  description?: string;
+  areaPath?: string;
+  fields?: Record<string, string | number | undefined>;
 };
 
 export default function (pi: ExtensionAPI) {
@@ -584,6 +612,69 @@ Read the archived specification and implement it. Keep the implementation constr
       const specs = await readArchivedSpecs(ctx.cwd);
       const report = buildStatusReport(specs);
       showReport(pi, ctx, "Project Status", report);
+    },
+  });
+
+  pi.registerCommand("spec-export-azure", {
+    description: "Export an archived specification to Azure DevOps as a User Story with child tasks",
+    handler: async (args, ctx) => {
+      await initializeSpecForge(ctx);
+      const parsed = parseAzureExportArgs(args);
+      if (!parsed) return showUsage(ctx, "/spec-export-azure <parent-feature-id> [archived-spec-id-or-search]");
+
+      if (!(await ensureAzureCliLoggedIn(ctx))) return;
+
+      const paths = getSpecPaths(ctx.cwd);
+      const spec = await resolveArchivedSpecForAzure(parsed.specQuery, ctx, paths);
+      if (!spec) return;
+
+      const storyTitle = buildAzureStoryTitle(spec);
+      const parent = await readAzureWorkItem(parsed.parentId).catch(async (error: unknown) => {
+        await fail(ctx, `Azure parent Feature not found or Azure DevOps CLI is not configured for this project.\nParent id: ${parsed.parentId}\n\n${formatAzureError(error)}`);
+        return undefined;
+      });
+      if (!parent) return;
+
+      const parentType = getAzureField(parent, "System.WorkItemType");
+      if (parentType !== "Feature") {
+        return fail(ctx, `Parent work item ${parsed.parentId} exists but is type "${parentType || "unknown"}". /spec-export-azure requires an Azure DevOps Feature parent.`);
+      }
+      const parentAreaPath = getAzureField(parent, "System.AreaPath");
+
+      const duplicateIds = await findAzureDuplicateUserStories(parsed.parentId, storyTitle).catch(async (error: unknown) => {
+        await fail(ctx, `Could not verify duplicate User Stories under Feature ${parsed.parentId}. Export cancelled to avoid duplicates.\n\n${formatAzureError(error)}`);
+        return undefined;
+      });
+      if (!duplicateIds) return;
+      if (duplicateIds.length > 0) {
+        return fail(ctx, `Azure export cancelled: Feature ${parsed.parentId} already has a User Story named "${storyTitle}". Existing id(s): ${duplicateIds.join(", ")}`);
+      }
+
+      if (ctx.hasUI) {
+        const ok = await ctx.ui.confirm("SpecForge Azure Export", `Create User Story "${storyTitle}" under Feature ${parsed.parentId} and export ${parseSpecTasks(spec.content).length} task(s)?`);
+        if (!ok) return;
+      }
+
+      try {
+        const story = await createAzureWorkItem(buildAzureStoryCreateOptions(spec, storyTitle, parentAreaPath));
+        const storyId = getAzureWorkItemId(story);
+        if (!storyId) throw new Error("Azure CLI did not return a User Story id.");
+
+        await linkAzureParent(String(storyId), parsed.parentId);
+
+        const taskIds: number[] = [];
+        for (const task of parseSpecTasks(spec.content)) {
+          const taskItem = await createAzureWorkItem(buildAzureTaskCreateOptions(task, parentAreaPath));
+          const taskId = getAzureWorkItemId(taskItem);
+          if (!taskId) throw new Error(`Azure CLI did not return a Task id for ${task.heading}.`);
+          await linkAzureParent(String(taskId), String(storyId));
+          taskIds.push(taskId);
+        }
+
+        showReport(pi, ctx, "Exported specification to Azure DevOps", `Feature parent: ${parsed.parentId}\nArea: ${parentAreaPath || "not set"}\nUser Story: ${storyId} - ${storyTitle}\nTasks created: ${taskIds.length}${taskIds.length > 0 ? `\nTask ids: ${taskIds.join(", ")}` : ""}`);
+      } catch (error) {
+        await fail(ctx, `Azure export failed. Some Azure work items may have been created before the failure.\n\n${formatAzureError(error)}`);
+      }
     },
   });
 }
@@ -1507,6 +1598,274 @@ function describeRecommendation(spec: ArchivedSpec, specs: ArchivedSpec[]): stri
   if (blockers > 0) reasons.push(`blocks ${blockers} feature${blockers === 1 ? "" : "s"}`);
   if (spec.metadata.readiness_score) reasons.push(`readiness ${spec.metadata.readiness_score}/10`);
   return reasons.join(", ");
+}
+
+function parseAzureExportArgs(args: string): AzureExportArgs | undefined {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  const parentId = tokens.shift();
+  if (!parentId || !/^\d+$/.test(parentId)) return undefined;
+  const specQuery = tokens.join(" ").trim();
+  return { parentId, specQuery: specQuery || undefined };
+}
+
+async function resolveArchivedSpecForAzure(query: string | undefined, ctx: ExtensionCommandContext, paths: SpecPaths): Promise<ArchivedSpec | undefined> {
+  const specs = await readArchivedSpecs(paths.root);
+  if (specs.length === 0) {
+    await fail(ctx, "No archived specs found. Run /spec-promote before exporting to Azure DevOps.");
+    return undefined;
+  }
+
+  if (!query) {
+    if (!ctx.hasUI) {
+      await showUsage(ctx, "/spec-export-azure <parent-feature-id> <archived-spec-id-or-search>");
+      return undefined;
+    }
+    const choices = specs.map((spec) => azureSpecChoiceLabel(spec));
+    const selected = await ctx.ui.select("Select an archived spec to export to Azure DevOps", choices);
+    const selectedLabel = String(selected || "");
+    return specs.find((spec) => azureSpecChoiceLabel(spec) === selectedLabel);
+  }
+
+  const normalized = query.replace(/\.md$/i, "").toLowerCase();
+  const exact = specs.find((spec) => spec.id.toLowerCase() === normalized || buildAzureStoryTitle(spec).toLowerCase() === normalized);
+  if (exact) return exact;
+
+  const matches = specs.filter((spec) => {
+    const title = buildAzureStoryTitle(spec).toLowerCase();
+    return spec.id.toLowerCase().includes(normalized) || title.includes(normalized);
+  });
+
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1 && ctx.hasUI) {
+    const choices = matches.map((spec) => azureSpecChoiceLabel(spec));
+    const selected = await ctx.ui.select(`Multiple archived specs match "${query}"`, choices);
+    const selectedLabel = String(selected || "");
+    return matches.find((spec) => azureSpecChoiceLabel(spec) === selectedLabel);
+  }
+
+  await fail(ctx, matches.length > 1
+    ? `Multiple archived specs match "${query}". Provide a full generated spec id.`
+    : `Archived spec not found for "${query}".`);
+  return undefined;
+}
+
+function azureSpecChoiceLabel(spec: ArchivedSpec): string {
+  const status = spec.metadata.status ? ` [${spec.metadata.status}]` : "";
+  return `${spec.id} — ${buildAzureStoryTitle(spec)}${status}`;
+}
+
+function buildAzureStoryTitle(spec: ArchivedSpec): string {
+  const heading = spec.content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  if (heading && !/^feature idea$/i.test(heading)) return truncateInline(heading, 120);
+  const idWithoutPrefix = spec.id.replace(/^[0-9a-f]{6}-/i, "");
+  return truncateInline(humanizeId(idWithoutPrefix || spec.id), 120);
+}
+
+async function ensureAzureCliLoggedIn(ctx: ExtensionCommandContext): Promise<boolean> {
+  try {
+    await runAzJson(["account", "show", "--output", "json"]);
+    return true;
+  } catch (error) {
+    await fail(ctx, `Azure CLI login is required before exporting specs. Run:\n\naz login\n\nThen make sure Azure DevOps defaults are configured, for example:\naz devops configure --defaults organization=https://dev.azure.com/<org> project=<project>\n\n${formatAzureError(error)}`);
+    return false;
+  }
+}
+
+async function readAzureWorkItem(id: string): Promise<AzureWorkItem> {
+  return runAzJson<AzureWorkItem>(["boards", "work-item", "show", "--id", id, "--output", "json"]);
+}
+
+async function findAzureDuplicateUserStories(parentId: string, title: string): Promise<number[]> {
+  const wiql = `SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = 'User Story' AND [System.Parent] = ${parentId} AND [System.Title] = '${escapeWiqlString(title)}'`;
+  const result = await runAzJson<unknown>(["boards", "query", "--wiql", wiql, "--output", "json"]);
+  return collectAzureWorkItemIds(result);
+}
+
+async function createAzureWorkItem(options: AzureWorkItemCreateOptions): Promise<AzureWorkItem> {
+  const args = [
+    "boards",
+    "work-item",
+    "create",
+    "--type",
+    options.type,
+    "--title",
+    options.title,
+    "--output",
+    "json",
+  ];
+
+  if (options.description) args.push("--description", options.description);
+  if (options.areaPath) args.push("--area", options.areaPath);
+
+  const fieldArgs = Object.entries(options.fields || {})
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined && entry[1] !== "")
+    .map(([field, value]) => `${field}=${value}`);
+  if (fieldArgs.length > 0) args.push("--fields", ...fieldArgs);
+
+  return runAzJson<AzureWorkItem>(args);
+}
+
+async function linkAzureParent(childId: string, parentId: string): Promise<void> {
+  await runAzJson([
+    "boards",
+    "work-item",
+    "relation",
+    "add",
+    "--id",
+    childId,
+    "--relation-type",
+    "parent",
+    "--target-id",
+    parentId,
+    "--output",
+    "json",
+  ]);
+}
+
+function parseSpecTasks(content: string): ParsedSpecTask[] {
+  const tasksSection = content.match(/##\s+Tasks\s*\n([\s\S]*?)(?=\n##\s+|$)/i)?.[1] || "";
+  const tasks: ParsedSpecTask[] = [];
+  const taskPattern = /###\s+([^\n]+)\n([\s\S]*?)(?=\n###\s+|$)/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = taskPattern.exec(tasksSection)) !== null) {
+    const heading = match[1].trim();
+    const body = match[2].trim();
+    const description = body.match(/Description:\s*(.+)/i)?.[1]?.trim() || heading;
+    tasks.push({
+      heading,
+      title: truncateInline(description.replace(/^[-*]\s*/, ""), 120),
+      body,
+      description,
+      priority: extractTaskFieldNumber(body, "Priority"),
+      effort: extractTaskFieldNumber(body, "Effort"),
+    });
+  }
+
+  return tasks;
+}
+
+function buildAzureStoryCreateOptions(spec: ArchivedSpec, title: string, areaPath: string | undefined): AzureWorkItemCreateOptions {
+  return {
+    type: "User Story",
+    title,
+    areaPath,
+    description: buildAzureStoryDescription(spec),
+    fields: {
+      "Microsoft.VSTS.Common.AcceptanceCriteria": formatAzureTextField(extractFullSection(spec.content, "Acceptance Criteria")),
+      "Microsoft.VSTS.Common.Priority": extractNumericSectionValue(spec.content, "Priority"),
+      "Microsoft.VSTS.Scheduling.Effort": extractNumericSectionValue(spec.content, "Effort"),
+      "Microsoft.VSTS.Common.BusinessValue": extractNumericSectionValue(spec.content, "Business Value"),
+    },
+  };
+}
+
+function buildAzureTaskCreateOptions(task: ParsedSpecTask, areaPath: string | undefined): AzureWorkItemCreateOptions {
+  return {
+    type: "Task",
+    title: task.title,
+    areaPath,
+    description: formatAzureTextField(task.description),
+    fields: {
+      "Microsoft.VSTS.Common.Priority": task.priority,
+      "Microsoft.VSTS.Scheduling.OriginalEstimate": task.effort,
+    },
+  };
+}
+
+function buildAzureStoryDescription(spec: ArchivedSpec): string {
+  return formatAzureSections([
+    ["SpecForge ID", spec.id],
+    ["Problem Statement", extractFullSection(spec.content, "Problem Statement")],
+    ["User Story", extractFullSection(spec.content, "User Story")],
+    ["Scope", extractFullSection(spec.content, "Scope")],
+    ["Out of Scope", extractFullSection(spec.content, "Out of Scope")],
+    ["Functional Requirements", extractFullSection(spec.content, "Functional Requirements")],
+    ["Technical Requirements", extractFullSection(spec.content, "Technical Requirements")],
+    ["Dependencies", extractFullSection(spec.content, "Dependencies")],
+    ["Risks", extractFullSection(spec.content, "Risks")],
+    ["Future Improvements", extractFullSection(spec.content, "Future Improvements")],
+  ]);
+}
+
+function extractFullSection(content: string, heading: string): string {
+  const pattern = new RegExp(`##\\s+${escapeRegExp(heading)}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|\\n#\\s+|$)`, "i");
+  return content.match(pattern)?.[1]?.trim() || "";
+}
+
+function formatAzureSections(sections: Array<[string, string]>): string {
+  const rendered = sections
+    .filter(([, body]) => body.trim().length > 0)
+    .map(([title, body]) => `<h3>${escapeHtml(title)}</h3>\n${formatAzureTextField(body)}`);
+  return rendered.join("\n");
+}
+
+function formatAzureTextField(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return `<pre>${escapeHtml(trimmed)}</pre>`;
+}
+
+function getAzureWorkItemId(item: AzureWorkItem): number | undefined {
+  const id = Number(item.id);
+  return Number.isFinite(id) ? id : undefined;
+}
+
+function getAzureField(item: AzureWorkItem, field: string): string | undefined {
+  const value = item.fields?.[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+function collectAzureWorkItemIds(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => Number((item as AzureWorkItem).id)).filter(Number.isFinite);
+  }
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ["workItems", "value", "items"]) {
+    const nested = record[key];
+    if (Array.isArray(nested)) return collectAzureWorkItemIds(nested);
+  }
+  return [];
+}
+
+function escapeWiqlString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function runAzJson<T = unknown>(args: string[]): Promise<T> {
+  return new Promise((resolve, reject) => {
+    execFile("az", args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(Object.assign(error, { stdout, stderr }));
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(stdout || "{}") as T);
+      } catch (parseError) {
+        reject(Object.assign(parseError instanceof Error ? parseError : new Error(String(parseError)), { stdout, stderr }));
+      }
+    });
+  });
+}
+
+function formatAzureError(error: unknown): string {
+  if (!error || typeof error !== "object") return String(error);
+  const record = error as Record<string, unknown>;
+  const stderr = typeof record.stderr === "string" ? record.stderr.trim() : "";
+  const stdout = typeof record.stdout === "string" ? record.stdout.trim() : "";
+  const message = error instanceof Error ? error.message : String(error);
+  const details = [stderr, stdout].filter(Boolean).join("\n");
+  return details ? `${message}\n${details}` : message;
 }
 
 function showReport(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, content: string): void {

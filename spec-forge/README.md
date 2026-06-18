@@ -41,6 +41,8 @@ Readiness score + comments in "Missing Before Implementation"
    ▼
 specs/archived_specs/<generated-feature-id>.md
    │
+   ├── optional Azure DevOps export ──► /spec-export-azure <parent-feature-id> [generated-feature-id-or-search]
+   │
    ▼
 /spec-start [generated-feature-id]
    │
@@ -54,15 +56,16 @@ Implementation work
 /spec-complete [generated-feature-id]
 ```
 
-Optional anytime:
+Optional commands:
 
 ```text
 /spec-status
 /spec-prioritize
 /spec-refresh
+/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]  # after promotion
 ```
 
-For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage.
+For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage. For `/spec-export-azure`, the parent Feature id is always required, but the spec id/search term is optional in the TUI.
 
 ---
 
@@ -205,6 +208,33 @@ Updates tracking to `✅ Approved`.
 ### `/spec-prioritize`
 
 Reads open archived specs and recommends implementation order using priority, business value, effort, blockers, status, and readiness.
+
+### `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]`
+
+Exports one archived specification to Azure DevOps as a User Story, then creates each spec task as an Azure Task parented to that User Story.
+
+- Requires Azure CLI login first: `az login`; if login is missing, the command stops and suggests logging in.
+- Requires the Azure DevOps CLI extension/defaults to be available for the target organization/project, for example `az devops configure --defaults organization=https://dev.azure.com/<org> project=<project>`.
+- The first argument is required and must be the Azure Feature work item id that will parent the new User Story.
+- The Feature parent must exist and must be a `Feature` work item.
+- If the spec argument is omitted in the TUI, SpecForge lists selectable specs from `specs/archived_specs/`.
+- The spec argument may be a generated id or a unique search term from the archived spec title/id.
+- Export is cancelled if the same Feature already has a User Story with the same title.
+- The new User Story inherits the parent Feature's Area path.
+- User Story field mapping:
+  - Description: spec summary sections such as problem, user story, scope, requirements, dependencies, risks, and future improvements.
+  - Acceptance Criteria: spec `Acceptance Criteria` section.
+  - Details: Priority, Effort, and Business Value.
+- Task field mapping:
+  - Description: task `Description`.
+  - Details: Priority and Estimated Work.
+  - Area: parent Feature's Area path.
+
+Example:
+
+```text
+/spec-export-azure 556547 memoization
+```
 
 ### `/spec-start [generated-feature-id]`
 
