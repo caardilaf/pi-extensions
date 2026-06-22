@@ -33,7 +33,7 @@ specs/refined_specs/<generated-feature-id>.md
    ▼
 Readiness score + TODOs/fix recommendations in "Missing Before Implementation"
    │
-   ├── if not ready ──► /spec-fix [generated-feature-id] ──► /spec-review [generated-feature-id]
+   ├── if not ready ──► /spec-fix [generated-feature-id] [fix-context-comment] ──► /spec-review [generated-feature-id]
    │
    ▼
 /spec-promote [generated-feature-id]
@@ -182,13 +182,14 @@ Checks include scope, requirements, numeric planning fields, titled tasks, accep
 
 Promotion requires Total Score/readiness score `>= 8/10`. TODOs/fix recommendations under `Missing Before Implementation` are advisory for promotion; blocking concerns should be reflected in the score.
 
-### `/spec-fix [generated-feature-id]`
+### `/spec-fix [generated-feature-id] [fix-context-comment]`
 
-Applies `/spec-review` feedback to the refined spec. In the TUI, omit the id to select from available files in `specs/refined_specs/`.
+Applies `/spec-review` feedback to the refined spec. In the TUI, omit the id to select from available files in `specs/refined_specs/`. SpecForge also accepts an optional additional context comment after the id, or prompts for one in the TUI, so the developer can suggest constraints or context for the fix.
 
 The agent should:
 
 - implement every actionable item in `Missing Before Implementation`;
+- use the developer-provided fix context only when it is consistent with one-feature scope and the reviewed scope;
 - update the relevant refined spec sections;
 - preserve one-feature scope;
 - ensure feature-level numeric Priority (1-4), Effort, Business Value, titled tasks with Priority/numeric Estimated Work/Description, and acceptance criteria are complete;

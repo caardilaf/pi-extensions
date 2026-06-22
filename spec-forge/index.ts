@@ -411,7 +411,7 @@ Before scoring, inspect additional relevant repository files if needed so the au
         directory: paths.refined,
         prompt: "Select a refined spec to fix",
         emptyMessage: "No refined specs found. Run /spec-refine first.",
-        usage: "/spec-fix <generated-feature-id>",
+        usage: "/spec-fix <generated-feature-id> [fix-context-comment]",
       });
       if (!id) return;
 
@@ -424,6 +424,7 @@ Before scoring, inspect additional relevant repository files if needed so the au
         scanProjectForContext(ctx.cwd),
       ]);
       const stage = detectStageFromContext(projectContext);
+      const fixContextComment = await resolveFixContextComment(args, id, ctx);
       await updateSpecTracking(ctx.cwd, id, "refined", refinedSpec);
 
       pi.sendUserMessage(`You are running SpecForge /spec-fix for feature id: ${id}.
@@ -437,6 +438,7 @@ Act like a technical product owner applying a senior software engineer auditor's
 
 Rules:
 - Address the existing review notes, low-scoring rubric items, and Missing Before Implementation items in the refined specification.
+- Treat the developer-provided additional fix context/comment as supplemental guidance for resolving gaps. Use it only when it is consistent with ONE SPEC = ONE FEATURE and the reviewed scope; if it would broaden or split the feature, stop and explain the conflict instead of applying it.
 - Preserve ONE SPEC = ONE FEATURE. If the review notes reveal multiple features, stop and recommend a split instead of broadening this spec.
 - Project maturity/stage is ${stage}; right-size fixes to this maturity level.
 - Keep or restore this feature specification structure:
@@ -450,6 +452,10 @@ ${SPEC_TEMPLATE}
 - Strengthen acceptance criteria so implementation can be verified.
 - Do not calculate or certify readiness scores during /spec-fix. After implementing the Missing Before Implementation TODOs/fix recommendations, either replace that list with "- None" or reset Implementation Readiness to the unreviewed Score Breakdown scaffold so the next /spec-review can audit the updated spec from a clean state.
 - Do not run /spec-review yourself, promote, or move the spec. After fixing, the user should run /spec-review ${id} again.
+
+Developer-provided additional fix context/comment:
+
+${fixContextComment || "(No additional fix context provided.)"}
 
 Project context:
 
@@ -1285,6 +1291,27 @@ function parseFeatureId(args: string): string | undefined {
   const trimmed = args.trim();
   if (!trimmed) return undefined;
   return trimmed.split(/\s+/)[0];
+}
+
+function parseInlineFixContextComment(args: string, id: string): string {
+  const trimmed = args.trim();
+  const firstToken = trimmed.split(/\s+/)[0];
+  if (!firstToken || firstToken !== id) return "";
+
+  const remainder = trimmed.slice(firstToken.length).trim();
+  return remainder.replace(/^--\s*/, "").trim();
+}
+
+async function resolveFixContextComment(args: string, id: string, ctx: ExtensionCommandContext): Promise<string> {
+  const inlineComment = parseInlineFixContextComment(args, id);
+  if (inlineComment) return inlineComment;
+  if (!ctx.hasUI) return "";
+
+  const comment = await ctx.ui.input(
+    "Additional /spec-fix context (optional)",
+    "Leave blank to skip; e.g. prefer SQLite, preserve current API, use existing auth context",
+  );
+  return (comment || "").trim();
 }
 
 async function resolveFeatureId(args: string, ctx: ExtensionCommandContext, options: {
