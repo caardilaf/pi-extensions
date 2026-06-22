@@ -17,7 +17,7 @@ See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and imp
 - `/spec-new <spec-name>` create a raw feature idea with a generated id.
 - `/spec-refine [generated-feature-id]` ask mandatory maturity-based clarification questions, then turn a raw idea into a one-feature refined spec with titled tasks; omit the id in the TUI to select from raw specs. Readiness stays unscored until review.
 - `/spec-review [generated-feature-id]` certify/populate readiness and add review gaps to `Missing Before Implementation`; omit the id to select from refined specs.
-- `/spec-fix [generated-feature-id]` apply review gaps before running review again; omit the id to select from refined specs.
+- `/spec-fix [generated-feature-id] [fix-context-comment]` apply review gaps before running review again; optionally add developer context after the id, or omit the id in the TUI to select from refined specs and enter optional fix context.
 - `/spec-promote [generated-feature-id]` approve a ready refined spec into archived specs; omit the id to select from refined specs.
 - `/spec-prioritize` recommend implementation order for approved specs.
 - `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]` export an archived spec to Azure DevOps as a new User Story with child Tasks using spec task titles as Azure Task titles; duplicate child titles fail instead of being reused, and task Estimated Work is applied to Azure Remaining Work; requires `az login` and a valid parent Feature id.

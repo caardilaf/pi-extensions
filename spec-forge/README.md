@@ -66,7 +66,7 @@ Optional commands:
 /spec-azure-import <product-backlog-item-id>  # import an Azure PBI/User Story back into archived_specs
 ```
 
-For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage. For `/spec-export-azure`, the parent Feature id is always required, but the spec id/search term is optional in the TUI.
+For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage. For `/spec-fix`, any text after the id is treated as an optional fix context comment; in the TUI, SpecForge prompts for that optional context after the spec is selected. For `/spec-export-azure`, the parent Feature id is always required, but the spec id/search term is optional in the TUI.
 
 ---
 
@@ -196,6 +196,12 @@ The agent should:
 - not calculate or certify readiness scores;
 - replace resolved missing items with `- None` or reset readiness to the unreviewed Score Breakdown scaffold;
 - not promote, move, or run review automatically.
+
+Example:
+
+```text
+/spec-fix a1b2c3-semantic-search preserve the existing public API and prefer SQLite-backed storage
+```
 
 After fixing, run `/spec-review <id>` again.
 
