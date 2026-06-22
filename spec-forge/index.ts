@@ -130,9 +130,20 @@ type AzureExportArgs = {
   specQuery?: string;
 };
 
+type AzureImportArgs = {
+  productBacklogItemId: string;
+};
+
+type AzureWorkItemRelation = {
+  rel?: string;
+  url?: string;
+  attributes?: Record<string, unknown>;
+};
+
 type AzureWorkItem = {
   id?: number;
   fields?: Record<string, unknown>;
+  relations?: AzureWorkItemRelation[];
 };
 
 type ParsedSpecTask = {
@@ -681,6 +692,69 @@ Read the archived specification and implement it. Keep the implementation constr
       } catch (error) {
         await fail(ctx, `Azure export failed. Some Azure work items may have been created before the failure.\n\n${formatAzureError(error)}`);
       }
+    },
+  });
+
+  pi.registerCommand("spec-azure-import", {
+    description: "Import a SpecForge-created Azure DevOps Product Backlog Item into archived_specs",
+    handler: async (args, ctx) => {
+      await initializeSpecForge(ctx);
+      const parsed = parseAzureImportArgs(args);
+      if (!parsed) return showUsage(ctx, "/spec-azure-import <product-backlog-item-id>");
+
+      if (!(await ensureAzureCliLoggedIn(ctx))) return;
+
+      const paths = getSpecPaths(ctx.cwd);
+      const story = await readAzureWorkItemWithRelations(parsed.productBacklogItemId).catch(async (error: unknown) => {
+        await fail(ctx, `Azure Product Backlog Item/User Story not found or Azure DevOps CLI is not configured for this project.\nWork item id: ${parsed.productBacklogItemId}\n\n${formatAzureError(error)}`);
+        return undefined;
+      });
+      if (!story) return;
+
+      const storyType = getAzureField(story, "System.WorkItemType") || "unknown";
+      if (!AZURE_STORY_WORK_ITEM_TYPES.includes(storyType)) {
+        return fail(ctx, `Work item ${parsed.productBacklogItemId} is type "${storyType}". /spec-azure-import expects a SpecForge-created Product Backlog Item/User Story.`);
+      }
+
+      const storyDescription = getAzureField(story, "System.Description") || "";
+      const specId = extractSpecForgeIdFromAzureDescription(storyDescription);
+      if (!specId) {
+        return fail(ctx, `The Product Backlog Item/User Story ${parsed.productBacklogItemId} was not created under the SpecForge framework because its description does not contain a SpecForge ID.`);
+      }
+
+      let childIds = getAzureChildWorkItemIds(story);
+      if (childIds.length === 0) {
+        childIds = await findAzureDirectChildWorkItemIds(parsed.productBacklogItemId).catch(() => []);
+      }
+      const childItems: AzureWorkItem[] = [];
+      for (const childId of childIds) {
+        const child = await readAzureWorkItem(String(childId)).catch(async (error: unknown) => {
+          await fail(ctx, `Could not read Azure child work item ${childId}.\n\n${formatAzureError(error)}`);
+          return undefined;
+        });
+        if (child) childItems.push(child);
+      }
+
+      const tasks = childItems
+        .filter((item) => AZURE_TASK_WORK_ITEM_TYPES.includes(getAzureField(item, "System.WorkItemType") || ""))
+        .sort((a, b) => (getAzureWorkItemId(a) || 0) - (getAzureWorkItemId(b) || 0));
+      if (tasks.length === 0) {
+        return fail(ctx, `No child Azure Task work items found under ${storyType} ${parsed.productBacklogItemId}. SpecForge Azure imports require the tasks created as children of the Product Backlog Item/User Story.`);
+      }
+
+      const archivedPath = join(paths.archived, `${specId}.md`);
+      const existingContent = await readFile(archivedPath, "utf8").catch(() => "");
+      const imported = buildArchivedSpecFromAzure(story, tasks, specId, existingContent);
+
+      if (ctx.hasUI && existingContent) {
+        const ok = await ctx.ui.confirm("SpecForge Azure Import", `Update archived spec from Azure work item ${parsed.productBacklogItemId}?\n${archivedPath}`);
+        if (!ok) return;
+      }
+
+      await writeFile(archivedPath, imported, "utf8");
+      const importedStatus = parseMetadata(splitFrontmatter(imported).frontmatter).status;
+      await updateSpecTracking(ctx.cwd, specId, importedStatus === "completed" ? "completed" : "approved", imported);
+      showReport(pi, ctx, "Imported specification from Azure DevOps", `${archivedPath}\n\nProduct Backlog Item/User Story: ${parsed.productBacklogItemId}\nSpecForge ID: ${specId}\nType: ${storyType}\nArea: ${getAzureField(story, "System.AreaPath") || "not set"}\nChild tasks imported: ${tasks.length}`);
     },
   });
 }
@@ -1640,6 +1714,12 @@ function parseAzureExportArgs(args: string): AzureExportArgs | undefined {
   return { parentId, specQuery: specQuery || undefined };
 }
 
+function parseAzureImportArgs(args: string): AzureImportArgs | undefined {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length !== 1 || !/^\d+$/.test(tokens[0])) return undefined;
+  return { productBacklogItemId: tokens[0] };
+}
+
 async function resolveArchivedSpecForAzure(query: string | undefined, ctx: ExtensionCommandContext, paths: SpecPaths): Promise<ArchivedSpec | undefined> {
   const specs = await readArchivedSpecs(paths.root);
   if (specs.length === 0) {
@@ -1698,7 +1778,7 @@ async function ensureAzureCliLoggedIn(ctx: ExtensionCommandContext): Promise<boo
     await runAzJson(["account", "show", "--output", "json"]);
     return true;
   } catch (error) {
-    await fail(ctx, `Azure CLI login is required before exporting specs. Run:\n\naz login\n\nThen make sure Azure DevOps defaults are configured, for example:\naz devops configure --defaults organization=https://dev.azure.com/<org> project=<project>\n\n${formatAzureError(error)}`);
+    await fail(ctx, `Azure CLI login is required before using SpecForge Azure commands. Run:\n\naz login\n\nThen make sure Azure DevOps defaults are configured, for example:\naz devops configure --defaults organization=https://dev.azure.com/<org> project=<project>\n\n${formatAzureError(error)}`);
     return false;
   }
 }
@@ -1707,8 +1787,18 @@ async function readAzureWorkItem(id: string): Promise<AzureWorkItem> {
   return runAzJson<AzureWorkItem>(["boards", "work-item", "show", "--id", id, "--output", "json"]);
 }
 
+async function readAzureWorkItemWithRelations(id: string): Promise<AzureWorkItem> {
+  return runAzJson<AzureWorkItem>(["boards", "work-item", "show", "--id", id, "--expand", "relations", "--output", "json"]);
+}
+
 async function findAzureChildWorkItemIds(parentId: string, type: string, title: string): Promise<number[]> {
   const wiql = `SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.WorkItemType] = '${escapeWiqlString(type)}' AND [System.Parent] = ${parentId} AND [System.Title] = '${escapeWiqlString(title)}'`;
+  const result = await runAzJson<unknown>(["boards", "query", "--wiql", wiql, "--output", "json"]);
+  return collectAzureWorkItemIds(result);
+}
+
+async function findAzureDirectChildWorkItemIds(parentId: string): Promise<number[]> {
+  const wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Parent] = ${parentId}`;
   const result = await runAzJson<unknown>(["boards", "query", "--wiql", wiql, "--output", "json"]);
   return collectAzureWorkItemIds(result);
 }
@@ -1896,7 +1986,179 @@ function buildAzureStoryDescription(spec: ArchivedSpec): string {
     ["Dependencies", extractFullSection(spec.content, "Dependencies")],
     ["Risks", extractFullSection(spec.content, "Risks")],
     ["Future Improvements", extractFullSection(spec.content, "Future Improvements")],
+    ["Implementation Readiness", extractImplementationReadinessSection(spec.content)],
   ]);
+}
+
+function buildArchivedSpecFromAzure(story: AzureWorkItem, tasks: AzureWorkItem[], specId: string, existingContent = ""): string {
+  const sections = parseAzureDescriptionSections(getAzureField(story, "System.Description") || "");
+  const existingSplit = splitFrontmatter(existingContent);
+  const existingMetadata = parseMetadata(existingSplit.frontmatter);
+  const importedReadiness = normalizeImportedImplementationReadiness(sections.get("implementation readiness") || "");
+  const implementationReadiness = importedReadiness || extractImplementationReadinessSection(existingContent) || buildUnreviewedImplementationReadinessSection();
+  const priority = getAzureNumericField(story, "Microsoft.VSTS.Common.Priority") ?? parseBoundedNumber(existingMetadata.priority, 1, 4) ?? 2;
+  const importedReadinessScore = extractReadinessScore(implementationReadiness);
+  const existingReadinessScore = extractReadinessScore(existingContent);
+  const readinessScore = Number.isFinite(importedReadinessScore)
+    ? String(importedReadinessScore)
+    : existingMetadata.readiness_score || (Number.isFinite(existingReadinessScore) ? String(existingReadinessScore) : "0");
+  const metadata = buildFrontmatter({
+    ...existingMetadata,
+    id: specId,
+    status: existingMetadata.status || "ready",
+    priority: String(priority),
+    readiness_score: readinessScore,
+    depends_on: existingMetadata.depends_on || [],
+    created_at: existingMetadata.created_at || today(),
+    started_at: existingMetadata.started_at || "",
+    completed_at: existingMetadata.completed_at || "",
+  });
+  const effort = getAzureNumericField(story, "Microsoft.VSTS.Scheduling.Effort")
+    ?? getAzureNumericField(story, "Microsoft.VSTS.Scheduling.StoryPoints")
+    ?? getAzureNumericField(story, "Microsoft.VSTS.Scheduling.Size");
+  const businessValue = getAzureNumericField(story, "Microsoft.VSTS.Common.BusinessValue");
+  const acceptanceCriteria = htmlToText(getAzureField(story, "Microsoft.VSTS.Common.AcceptanceCriteria") || "");
+  const taskSections = tasks.map((task, index) => buildImportedTaskSection(task, index + 1)).join("\n\n");
+
+  return `${metadata}
+## Problem Statement
+
+${sections.get("problem statement") || ""}
+
+## Priority
+Numeric priority score (1-4): ${priority}
+
+## Effort
+Story points (1, 2, 3, 5, 8, 13): ${formatOptionalNumber(effort)}
+
+## Business Value
+Numeric business value score (1-10): ${formatOptionalNumber(businessValue)}
+
+## Scope
+
+${sections.get("scope") || ""}
+
+## Out of Scope
+
+${sections.get("out of scope") || ""}
+
+## User Story
+
+${sections.get("user story") || ""}
+
+## Functional Requirements
+
+${sections.get("functional requirements") || ""}
+
+## Technical Requirements
+
+${sections.get("technical requirements") || ""}
+
+## Dependencies
+
+${sections.get("dependencies") || ""}
+
+## Tasks
+
+${taskSections}
+
+## Acceptance Criteria
+
+${acceptanceCriteria}
+
+## Risks
+
+${sections.get("risks") || ""}
+
+## Future Improvements
+
+${sections.get("future improvements") || ""}
+
+${implementationReadiness.trim()}
+`;
+}
+
+function buildImportedTaskSection(task: AzureWorkItem, index: number): string {
+  const rawTitle = getAzureField(task, "System.Title") || `Task ${index}`;
+  const title = /^Task\s+\d+\s*:/i.test(rawTitle) ? rawTitle : `Task ${index}: ${rawTitle}`;
+  const description = htmlToText(getAzureField(task, "System.Description") || "") || title;
+  const priority = getAzureNumericField(task, "Microsoft.VSTS.Common.Priority") ?? 2;
+  const remainingWork = getAzureNumericField(task, AZURE_TASK_REMAINING_WORK_FIELD) ?? 1;
+
+  return `### ${title}
+
+- Priority (1-4): ${priority}
+- Estimated Work: ${remainingWork}
+- Description: ${description}`;
+}
+
+function extractSpecForgeIdFromAzureDescription(description: string): string | undefined {
+  const sections = parseAzureDescriptionSections(description);
+  const sectionValue = sections.get("specforge id")?.match(/\b[0-9a-f]{6}-[a-z0-9][a-z0-9-]*\b/i)?.[0];
+  if (sectionValue) return sectionValue;
+  return htmlToText(description).match(/SpecForge\s+ID\s*[:\n\r ]+\s*([0-9a-f]{6}-[a-z0-9][a-z0-9-]*)/i)?.[1];
+}
+
+function parseAzureDescriptionSections(description: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const headingPattern = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+  const headings: Array<{ title: string; start: number; end: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = headingPattern.exec(description)) !== null) {
+    headings.push({
+      title: htmlToText(match[1]).toLowerCase(),
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+  }
+
+  headings.forEach((heading, index) => {
+    const nextStart = headings[index + 1]?.start ?? description.length;
+    const body = htmlToText(description.slice(heading.end, nextStart));
+    if (heading.title) sections.set(heading.title, body);
+  });
+
+  return sections;
+}
+
+function extractImplementationReadinessSection(content: string): string {
+  return content.match(/##\s+Implementation Readiness\s*\n[\s\S]*$/i)?.[0]?.trim() || "";
+}
+
+function normalizeImportedImplementationReadiness(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  if (/^##\s+Implementation Readiness\b/im.test(trimmed)) return trimmed;
+  return `## Implementation Readiness\n\n${trimmed}`;
+}
+
+function buildUnreviewedImplementationReadinessSection(): string {
+  return `## Implementation Readiness
+
+### Score Breakdown
+
+| Criterion | Score |
+| --- | ---: |
+| Problem Defined | Not reviewed |
+| Scope Defined | Not reviewed |
+| Out of Scope Defined | Not reviewed |
+| Functional Requirements Defined | Not reviewed |
+| Acceptance Criteria Defined | Not reviewed |
+| Tasks Defined with Titles and Numeric Priority/Estimated Work/Description | Not reviewed |
+| Dependencies Defined | Not reviewed |
+| Technical Direction Defined | Not reviewed |`;
+}
+
+function getAzureChildWorkItemIds(item: AzureWorkItem): number[] {
+  return (item.relations || [])
+    .filter((relation) => relation.rel === "System.LinkTypes.Hierarchy-Forward" || relation.attributes?.name === "Child")
+    .map((relation) => Number(relation.url?.match(/workItems\/(\d+)$/i)?.[1]))
+    .filter(Number.isFinite);
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return value === undefined ? "" : String(value);
 }
 
 function extractFullSection(content: string, heading: string): string {
@@ -1924,7 +2186,15 @@ function getAzureWorkItemId(item: AzureWorkItem): number | undefined {
 
 function getAzureField(item: AzureWorkItem, field: string): string | undefined {
   const value = item.fields?.[field];
-  return typeof value === "string" ? value : undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
+function getAzureNumericField(item: AzureWorkItem, field: string): number | undefined {
+  const value = item.fields?.[field];
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function collectAzureWorkItemIds(value: unknown): number[] {
@@ -1950,6 +2220,27 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function htmlToText(value: string): string {
+  return unescapeHtml(value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|pre)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, ""))
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function runAzJson<T = unknown>(args: string[]): Promise<T> {

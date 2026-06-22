@@ -63,6 +63,7 @@ Optional commands:
 /spec-prioritize
 /spec-refresh  # codebase workspaces only
 /spec-export-azure <parent-feature-id> [generated-feature-id-or-search]  # after promotion
+/spec-azure-import <product-backlog-item-id>  # import an Azure PBI/User Story back into archived_specs
 ```
 
 For commands shown with `[generated-feature-id]`, the id is optional in the TUI. If omitted, SpecForge lists selectable specs from the relevant workflow stage. For `/spec-export-azure`, the parent Feature id is always required, but the spec id/search term is optional in the TUI.
@@ -230,7 +231,7 @@ Exports one archived specification to Azure DevOps as a User Story, then creates
 - Task titles must be unique, and each task must have numeric Estimated Work so Azure Remaining Work can be set after creation.
 - New User Stories and Tasks inherit the parent Feature's Area path.
 - User Story field mapping:
-  - Description: spec summary sections such as problem, user story, scope, requirements, dependencies, risks, and future improvements.
+  - Description: spec summary sections such as problem, user story, scope, requirements, dependencies, risks, future improvements, and Implementation Readiness.
   - Acceptance Criteria: spec `Acceptance Criteria` section.
   - Details: Priority, Effort, and Business Value.
 - Task field mapping:
@@ -245,6 +246,25 @@ Example:
 
 ```text
 /spec-export-azure 556547 memoization
+```
+
+### `/spec-azure-import <product-backlog-item-id>`
+
+Imports a SpecForge-created Azure DevOps Product Backlog Item/User Story back into `specs/archived_specs/` and reconstructs the archived Markdown schema.
+
+- Requires Azure CLI login first: `az login`; if login is missing, the command stops and suggests logging in.
+- Requires the Azure DevOps CLI extension/defaults to be available for the target organization/project.
+- The argument must be the Azure Product Backlog Item/User Story id created by `/spec-export-azure`.
+- The work item description must contain a `SpecForge ID`; otherwise the command reports that the User Story was not created under the SpecForge framework.
+- Imports User Story/Product Backlog Item fields such as Priority, Effort, Business Value, Acceptance Criteria, Description sections, Implementation Readiness, and Area context.
+- Imports child Azure Tasks as SpecForge `## Tasks`, using Azure Task title, description, priority, and Remaining Work as the task Estimated Work value.
+- Writes `specs/archived_specs/<SpecForge ID>.md` and updates SpecForge tracking to `✅ Approved`.
+- If the archived spec already exists, existing SpecForge metadata/readiness is preserved where Azure does not store it.
+
+Example:
+
+```text
+/spec-azure-import 66583
 ```
 
 ### `/spec-start [generated-feature-id]`
