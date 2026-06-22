@@ -47,10 +47,13 @@ specs/archived_specs/<generated-feature-id>.md
 /spec-start [generated-feature-id]
    │
    ▼
-Implementation handoff to pi
+Approval-gated task handoff to pi
    │
    ▼
-Implementation work
+Implement Task 1, stop, and wait for approval
+   │
+   ▼
+Implement Task 2..N one-by-one only after approval
    │
    ▼
 /spec-complete [generated-feature-id]
@@ -280,7 +283,12 @@ Starts implementation of an archived spec. In the TUI, omit the id to select fro
 
 - Requires `status: ready`.
 - Updates metadata to `status: in_progress` and sets `started_at`.
-- Sends an implementation handoff to pi.
+- Sends an approval-gated implementation handoff to pi.
+- The agent must execute tasks one-by-one in the order listed under `## Tasks`.
+- The initial `/spec-start` handoff implements Task 1 only.
+- After each task, the agent should run appropriate checks when possible, summarize what changed, and stop with a message like `Task 1 done. Waiting for approval to continue with Task 2.`
+- The agent must not start the next task until the user explicitly approves continuing.
+- After the final task, the agent asks the user to verify the feature and run `/spec-complete <id>` when accepted.
 
 Implementation must follow the archived spec’s Scope, Out of Scope, Tasks, and Acceptance Criteria. No extra discovery unless explicitly allowed by the spec.
 

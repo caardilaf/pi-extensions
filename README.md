@@ -22,7 +22,7 @@ See [`spec-forge/README.md`](spec-forge/README.md) for the full workflow and imp
 - `/spec-prioritize` recommend implementation order for approved specs.
 - `/spec-export-azure <parent-feature-id> [generated-feature-id-or-search]` export an archived spec to Azure DevOps as a new User Story with child Tasks using spec task titles as Azure Task titles; duplicate child titles fail instead of being reused, and task Estimated Work is applied to Azure Remaining Work; requires `az login` and a valid parent Feature id.
 - `/spec-azure-import <product-backlog-item-id>` import a SpecForge-created Azure Product Backlog Item/User Story and its child Tasks back into `specs/archived_specs/` using the SpecForge ID embedded in the work item description.
-- `/spec-start [generated-feature-id]` start implementation from an approved spec; omit the id to select from ready archived specs.
+- `/spec-start [generated-feature-id]` start approval-gated implementation from an approved spec; the agent implements Task 1 only, then waits for explicit approval before each next task. Omit the id to select from ready archived specs.
 - `/spec-complete [generated-feature-id]` mark an implemented spec as complete; omit the id to select from in-progress archived specs.
 - `/spec-status` show archived spec progress and recommended next work.
 

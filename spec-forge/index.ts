@@ -539,7 +539,7 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
   });
 
   pi.registerCommand("spec-start", {
-    description: "Begin implementation of a promoted feature",
+    description: "Begin approval-gated task-by-task implementation of a promoted feature",
     handler: async (args, ctx) => {
       await initializeSpecForge(ctx);
       const paths = getSpecPaths(ctx.cwd);
@@ -561,6 +561,7 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
       if (metadata.status !== "ready") {
         return fail(ctx, `Spec must have status: ready before /spec-start. Current status: ${metadata.status || "missing"}`);
       }
+      const tasks = parseSpecTasks(content);
 
       const nextContent = withUpdatedMetadata(content, id, {
         status: "in_progress",
@@ -573,6 +574,9 @@ Now update ${refinedPath} in place to address the review feedback. Do not promot
 Archived specification path:
 ${archivedPath}
 
+Implementation mode:
+Execute the archived spec's tasks ONE-BY-ONE with user approval between tasks.
+
 Important rule:
 Planning is complete. Do not perform additional discovery unless the archived specification explicitly allows it.
 
@@ -582,7 +586,20 @@ Follow exactly:
 - Tasks
 - Acceptance Criteria
 
-Read the archived specification and implement it. Keep the implementation constrained to this one feature.`);
+Task execution protocol:
+- Read the archived specification before making changes.
+- Use the task order from the spec's \`## Tasks\` section.
+- On this /spec-start handoff, implement Task 1 only.
+- Do not start Task 2 or any later task until the user explicitly approves continuing.
+- After finishing each task, run appropriate checks for that task when possible, summarize what changed, and then stop.
+- If there is another task, end with: \`Task N done. Waiting for approval to continue with Task N+1.\`
+- If the final task is done, ask the user to verify the feature and then run \`/spec-complete ${id}\` when accepted.
+- If a task is blocked or cannot be completed within the approved scope, stop and report the blocker instead of starting another task.
+
+Planned task order:
+${formatSpecStartTaskPlan(tasks)}
+
+Keep the implementation constrained to this one feature.`);
     },
   });
 
@@ -1967,6 +1984,19 @@ function parseSpecTasks(content: string): ParsedSpecTask[] {
   }
 
   return tasks;
+}
+
+function formatSpecStartTaskPlan(tasks: ParsedSpecTask[]): string {
+  if (tasks.length === 0) return "- No parseable tasks found; read the spec and stop if the task list is unclear.";
+  return tasks
+    .map((task, index) => {
+      const details = [
+        task.priority !== undefined ? `priority ${task.priority}` : undefined,
+        task.estimatedWork !== undefined ? `estimated work ${task.estimatedWork}` : undefined,
+      ].filter(Boolean).join(", ");
+      return `- Task ${index + 1}: ${task.title}${details ? ` (${details})` : ""}`;
+    })
+    .join("\n");
 }
 
 function extractTaskTitle(heading: string, fallback: string): string {
